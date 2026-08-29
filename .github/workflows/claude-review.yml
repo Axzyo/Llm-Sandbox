@@ -1,0 +1,59 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+jobs:
+  claude-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      # Switch: repo variable REVIEWER selects the active reviewer.
+      #   claude (or unset) -> Claude reviews (this job runs the agent)
+      #   copilot / off      -> Claude stands down; job passes as a no-op so the
+      #                         required `claude-review` check never blocks merges.
+      # Change it with:  gh variable set REVIEWER --body claude|copilot|both|off
+      - name: Review mode
+        run: echo "REVIEWER='${{ vars.REVIEWER }}' (empty = claude default)"
+
+      - uses: actions/checkout@v6
+        if: ${{ vars.REVIEWER != 'copilot' && vars.REVIEWER != 'off' }}
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@v1
+        if: ${{ vars.REVIEWER != 'copilot' && vars.REVIEWER != 'off' }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            You are the required reviewer for this pull request. Review it against
+            the project's coding standards in CLAUDE.md and the philosophy in DESIGN.md.
+
+            Focus on:
+            - Correctness and potential bugs (especially in the sim/ decision loop,
+              memory/spatial layers, and goal-set validation contract)
+            - No hardcoded behavioral prose or authored reasoning in per-turn LLM
+              context — provide facts/data, let the model decide (project rule)
+            - Reuse of existing systems (interact/inventory/memory pipelines) over
+              new parallel mechanisms
+            - No dead code, no premature complexity, strict validation with no
+              silent coercion
+            - Whether smoke_test.py covers any new/changed behavior
+
+            Note: The PR branch is already checked out in the current working directory.
+
+            Use `gh pr comment` for top-level feedback summarizing your review.
+            Use `mcp__github_inline_comment__create_inline_comment` (with `confirmed: true`)
+            to flag specific lines. Only post GitHub comments - don't submit review
+            text as messages.
+
+          claude_args: |
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
