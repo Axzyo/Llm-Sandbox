@@ -31,14 +31,17 @@ Applied to the default branch (`main`):
 | Restrict deletions | `main` cannot be deleted |
 | Bypass | Repository admins may bypass in an emergency |
 
-Because required approvals is 0, the **status checks are the real gate**: a PR
-merges as soon as both are green, with no manual approval and no admin bypass
-needed. Nothing lands on `main` without passing tests *and* being reviewed by the
-agent.
+Because required approvals is 0, the **status checks are the real gate**: once
+both are green a PR can be merged (with `gh pr merge` or the Merge button — GitHub
+does not merge on its own unless auto-merge is enabled) with no manual approval
+and no admin bypass. So while `REVIEWER=claude` (the current setting), nothing
+lands on `main` without passing tests *and* being reviewed by the agent.
 
 > Note: `claude-review` going green means Claude successfully ran and posted its
 > review, not that it "approved." Its findings are advisory comments you read on
-> the PR; a PR simply cannot merge without that review having run.
+> the PR. And the guarantee is only as strong as the `REVIEWER` setting: with
+> `REVIEWER` set to `copilot` or `off` the job is a green no-op (see below), so
+> the check passes without any agent review having run.
 
 ## The two checks
 
@@ -49,7 +52,7 @@ Runs on every PR to `main` (and on pushes to non-`main` branches). Installs
 
 ### `claude-review` (`.github/workflows/claude-review.yml`)
 
-Runs `anthropics/claude-code-action@v1` on every PR. Claude reads the full diff
+Runs `anthropics/claude-code-action@v1` on every PR to `main`. Claude reads the full diff
 and reviews it against `CLAUDE.md` and `DESIGN.md`, posting a summary comment
 (and inline comments on specific lines). It focuses on the project's rules:
 no hardcoded behavioral prose, reuse of existing systems, no dead code, no
@@ -57,11 +60,13 @@ premature complexity, strict validation, and test coverage for changed behavior.
 
 ## Switching the reviewer
 
-The active reviewer is controlled by the repository **variable `REVIEWER`**:
+The active reviewer is controlled by the repository **variable `REVIEWER`**. The
+workflow guard is a deny-list: only the exact strings `copilot` and `off` stand
+Claude down — **unset, or any other value/typo, runs Claude**.
 
 | `REVIEWER` | `claude-review` check | Copilot |
 | ---------- | --------------------- | ------- |
-| `claude` (current) | Claude reviews, gates the merge | off |
+| `claude` (current), unset, or anything else | Claude reviews, gates the merge | off |
 | `both`     | Claude reviews, gates the merge | on (if enabled in settings) |
 | `copilot`  | stands down (job passes as a no-op) | on |
 | `off`      | stands down (job passes as a no-op) | off |
@@ -87,12 +92,19 @@ roughly cents per PR). The **Claude GitHub App**
 (https://github.com/apps/claude) must be installed on the repo — it provides the
 action's GitHub-side identity for posting comments.
 
-To (re)set the key, use the `--body` form — the interactive paste prompt has been
-observed to save an empty value:
+To (re)set the key, pipe it from stdin — this avoids both the empty-value bug seen
+with the interactive paste prompt and leaking the key into shell history:
 
 ```bash
-gh secret set ANTHROPIC_API_KEY -R Axzyo/Llm-Sandbox --body "sk-ant-..."
+printf %s "sk-ant-..." | gh secret set ANTHROPIC_API_KEY -R Axzyo/Llm-Sandbox
 ```
+
+**Fork PRs:** the API-key secret is not exposed to workflows triggered by PRs from
+forks, and the workflow token is read-only there — so `claude-review` cannot
+authenticate or post, and its required check cannot pass on a fork PR. This is a
+solo/same-repo project (feature branches live in this repo), so it does not arise
+in the normal flow; if outside contributions are ever accepted, a maintainer would
+re-run the review from a same-repo branch.
 
 ## Day-to-day workflow
 
