@@ -26,7 +26,7 @@ Applied to the default branch (`main`):
 | ---- | ------ |
 | Require a pull request | No direct pushes; all commits arrive via PR |
 | Require status checks | **`smoke-test`** and **`claude-review`** must pass (strict: branch must be up to date) |
-| Required approvals | **0** — merges automatically once checks are green |
+| Required approvals | **0** — a PR can be merged once both checks are green (no auto-merge) |
 | Block force pushes | No history rewrites on `main` |
 | Restrict deletions | `main` cannot be deleted |
 | Bypass | Repository admins may bypass in an emergency |
@@ -34,8 +34,9 @@ Applied to the default branch (`main`):
 Because required approvals is 0, the **status checks are the real gate**: once
 both are green a PR can be merged (with `gh pr merge` or the Merge button — GitHub
 does not merge on its own unless auto-merge is enabled) with no manual approval
-and no admin bypass. So while `REVIEWER=claude` (the current setting), nothing
-lands on `main` without passing tests *and* being reviewed by the agent.
+needed. Repo admins retain an emergency bypass (see the table), but in the normal
+flow, while `REVIEWER=claude` (the current setting), nothing lands on `main`
+without passing tests *and* being reviewed by the agent.
 
 > Note: `claude-review` going green means Claude successfully ran and posted its
 > review, not that it "approved." Its findings are advisory comments you read on
@@ -100,8 +101,10 @@ printf %s "sk-ant-..." | gh secret set ANTHROPIC_API_KEY -R Axzyo/Llm-Sandbox
 ```
 
 **Fork PRs:** the API-key secret is not exposed to workflows triggered by PRs from
-forks, and the workflow token is read-only there — so `claude-review` cannot
-authenticate or post, and its required check cannot pass on a fork PR. This is a
+forks, and the workflow token is read-only there — so while `REVIEWER` is `claude`
+or `both`, `claude-review` cannot authenticate or post, and its required check
+cannot pass on a fork PR. (Under `copilot`/`off` the job is a green no-op and this
+does not apply.) This is a
 solo/same-repo project (feature branches live in this repo), so it does not arise
 in the normal flow; if outside contributions are ever accepted, a maintainer would
 re-run the review from a same-repo branch.
@@ -122,6 +125,6 @@ gh pr merge --squash --delete-branch
 - **Gate rules** (checks, approvals, protections): edit the ruleset via the API —
   `gh api --method PUT repos/Axzyo/Llm-Sandbox/rulesets/<id>`.
 - **Reviewer**: set the `REVIEWER` variable (above).
-- **Credentials**: `gh secret set ... --body`.
+- **Credentials**: `printf %s "sk-ant-..." | gh secret set ANTHROPIC_API_KEY`.
 
 Verify any change with a throwaway PR before relying on it.
