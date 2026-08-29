@@ -116,7 +116,7 @@ Every entity has a `target`: the thing it is "looking at". Interactions always f
 
 - Player: target tracks the mouse hover each frame.
 - NPCs: attention rule v0 — most recently perceived entity (`entity_entered`/`entity_moved` sets it, `entity_left` clears if it was the target). Will be replaced by LLM-driven attention later.
-- NPC autonomous behavior is currently DISABLED (`ENABLE_NPC_THINKS = False`): no wandering, no self-initiated thinks or dialogue. They still reply when spoken to. This is deliberate while interactions are being isolated and tested.
+- NPC autonomous behavior is ENABLED (`ENABLE_NPC_THINKS = True`, now in `sim/engine.py`): NPCs think when a novel memory forms AND on an idle cadence (`think_interval`, per entity, default 3 s) — internal pressure like hunger is never a perception event, so the cadence is what lets an agent reconsider as its meters fall.
 
 ## Logging
 
@@ -166,6 +166,7 @@ Small grid, some walls, player + 2 brainless NPCs.
 | Player↔NPC dialogue | done, **verified via `--autotest talk`** | right-click opens (no NPC opener line); type immediately, ENTER sends, ESC/left-click leaves; movement locked while chatting; responses echo to console + on-screen; harness injects real input events |
 | NPC↔NPC dialogue | done, **verified via `--autotest npc-talk`** | same interact code path as player (injected intent → apply_intent → open_session → reply alternation). Live run: 12-turn coherent survival negotiation, closed by max_turns cap |
 | Curiosity drive / personalities | next | |
+| Headless engine + reward training scaffold | done | per-tick sim extracted to `sim/engine.py` (main.py and the headless runner drive the same Engine; headless thinks synchronously for reproducibility). `sim/reward.py`: drive-weighted, world-computed reward (survival = min meter; curiosity = types newly familiar). Expert iteration: `train/run_episodes.py` (rollouts + per-NPC returns), reward-filtered `extract_dataset.py` (top quantile per drive profile), `train_lora.py` (Qwen2.5-3B LoRA, completion-only loss), `train/expert_iter.py` orchestrator; round-1 rollout with gemma4 is the baseline yardstick |
 | Reflections + `use` objects | — | |
 | Vector embeddings for retrieval | deferred | lexical overlap sufficient at current scale; revisit when memory corpora grow |
 

@@ -39,8 +39,11 @@ request Copilot review"* (needs Copilot access on the account). Turn it on for
 
 ## One-time setup (repo owner)
 
+- Install the **Claude GitHub App** on this repo (https://github.com/apps/claude)
+  — the action uses it to post review comments. Without it the job fails with
+  "Claude Code is not installed on this repository".
 - Add repo secret **`ANTHROPIC_API_KEY`** (Settings → Secrets and variables →
-  Actions) so the review job can run. Without it, `claude-review` fails.
+  Actions) so the review job can call the model. Without it, `claude-review` fails.
 - Branch protection on `main` will be set to require the checks above plus one
   approving review before merging. See this PR's discussion for the `gh api`
   call used to apply it.
