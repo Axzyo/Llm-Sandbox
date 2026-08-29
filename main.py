@@ -298,6 +298,8 @@ def main() -> None:
         bar = font.render(" | ".join(statuses), True, COLOR_TEXT)
         screen.blit(bar, (10, HEIGHT * TILE_SIZE - 22))
 
+        if inspect_npc_id is not None and inspect_npc_id not in npcs_by_id:
+            inspect_npc_id = None          # the inspected NPC died: close its panel
         if inspect_npc_id is not None and inspect_npc_id in brains:
             store = brains[inspect_npc_id].store
             mems = sorted(list(store.memories), key=lambda m: m["t"], reverse=True)[:20]
