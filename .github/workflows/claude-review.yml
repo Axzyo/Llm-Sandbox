@@ -13,11 +13,21 @@ jobs:
       pull-requests: write
       id-token: write
     steps:
+      # Switch: repo variable REVIEWER selects the active reviewer.
+      #   claude (or unset) -> Claude reviews (this job runs the agent)
+      #   copilot / off      -> Claude stands down; job passes as a no-op so the
+      #                         required `claude-review` check never blocks merges.
+      # Change it with:  gh variable set REVIEWER --body claude|copilot|both|off
+      - name: Review mode
+        run: echo "REVIEWER='${{ vars.REVIEWER }}' (empty = claude default)"
+
       - uses: actions/checkout@v6
+        if: ${{ vars.REVIEWER != 'copilot' && vars.REVIEWER != 'off' }}
         with:
           fetch-depth: 1
 
       - uses: anthropics/claude-code-action@v1
+        if: ${{ vars.REVIEWER != 'copilot' && vars.REVIEWER != 'off' }}
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |

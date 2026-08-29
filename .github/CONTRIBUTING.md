@@ -12,6 +12,31 @@
 4. A PR can only merge once checks pass and the review has been addressed and
    approved. **Every merge is reviewed by the agent before acceptance.**
 
+## Choosing the reviewer (Claude vs Copilot)
+
+The active reviewer is controlled by the repo variable **`REVIEWER`**:
+
+| `REVIEWER` value | Claude (`claude-review` check) | Copilot |
+| ---------------- | ------------------------------ | ------- |
+| `claude` (or unset) | runs, gates the merge        | off     |
+| `both`           | runs, gates the merge          | add on (see below) |
+| `copilot`        | stands down (check passes no-op) | on    |
+| `off`            | stands down (check passes no-op) | off     |
+
+Switch it any time (no code change, takes effect on the next PR event):
+
+```
+gh variable set REVIEWER --body copilot     # or claude / both / off
+```
+
+When Claude stands down, the `claude-review` job still runs but does nothing and
+reports green, so the required check never blocks a merge.
+
+**Copilot side** is a separate GitHub setting (it posts advisory review comments,
+it is not a status check): enable *Settings -> Code review -> "Automatically
+request Copilot review"* (needs Copilot access on the account). Turn it on for
+`both`/`copilot`, off otherwise.
+
 ## One-time setup (repo owner)
 
 - Add repo secret **`ANTHROPIC_API_KEY`** (Settings → Secrets and variables →
