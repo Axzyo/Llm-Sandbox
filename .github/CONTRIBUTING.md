@@ -16,5 +16,6 @@
 
 - Add repo secret **`ANTHROPIC_API_KEY`** (Settings → Secrets and variables →
   Actions) so the review job can run. Without it, `claude-review` fails.
-- Branch protection on `main` is configured to require the checks above plus one
-  approving review. See `git` history of this PR for the `gh api` call used.
+- Branch protection on `main` will be set to require the checks above plus one
+  approving review before merging. See this PR's discussion for the `gh api`
+  call used to apply it.
