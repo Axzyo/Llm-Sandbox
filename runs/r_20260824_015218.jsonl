@@ -1,0 +1,6 @@
+{"t": 0.0, "run": "r_20260824_015218", "actor": "system", "type": "spawn", "payload": {"model": "gemma4", "entities": {"player": [3, 3], "npc_1": [19, 9], "npc_2": [18, 5]}}}
+{"t": 0.0, "run": "r_20260824_015218", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "npc_2", "pos": [18, 5]}]}}
+{"t": 0.0, "run": "r_20260824_015218", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "npc_1", "pos": [19, 9]}]}}
+{"t": 0.0, "run": "r_20260824_015218", "actor": "npc_1", "type": "action_start", "payload": {"action": "think"}}
+{"t": 0.0, "run": "r_20260824_015218", "actor": "npc_2", "type": "action_start", "payload": {"action": "think"}}
+{"t": 14.672, "run": "r_20260824_015218", "actor": "system", "type": "shutdown", "payload": {"frames": 900}}

@@ -1,0 +1,14 @@
+{"t": 0.0, "run": "r_20260826_203931", "actor": "system", "type": "spawn", "payload": {"model": "gemma4", "entities": {"player": [3, 3], "npc_1": [19, 9], "npc_2": [18, 5]}}}
+{"t": 0.016, "run": "r_20260826_203931", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "npc_2", "pos": [18, 5], "etype": "npc"}]}}
+{"t": 0.016, "run": "r_20260826_203931", "actor": "npc_1", "type": "memory_write", "payload": {"memory": {"id": "npc_1_m1", "t": 0.016, "sense": "saw", "observer_loc": [19, 9], "direction": "N", "subject": {"kind": "entity", "ref": "npc_2", "type": "npc", "pos": [18, 5], "info": {}}, "last_accessed": 0.016, "access_count": 0}, "novel": true}}
+{"t": 0.016, "run": "r_20260826_203931", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "npc_1", "pos": [19, 9], "etype": "npc"}]}}
+{"t": 0.016, "run": "r_20260826_203931", "actor": "npc_2", "type": "memory_write", "payload": {"memory": {"id": "npc_2_m1", "t": 0.016, "sense": "saw", "observer_loc": [18, 5], "direction": "S", "subject": {"kind": "entity", "ref": "npc_1", "type": "npc", "pos": [19, 9], "info": {}}, "last_accessed": 0.016, "access_count": 0}, "novel": true}}
+{"t": 0.016, "run": "r_20260826_203931", "actor": "npc_1", "type": "action_start", "payload": {"action": "think"}}
+{"t": 0.016, "run": "r_20260826_203931", "actor": "npc_2", "type": "action_start", "payload": {"action": "think"}}
+{"t": 0.016, "run": "r_20260826_203931", "actor": "npc_1", "type": "memory_retrieve", "payload": {"ids": ["npc_1_m1"], "scores": [0.722]}}
+{"t": 1.016, "run": "r_20260826_203931", "actor": "npc_1", "type": "goals_added", "payload": {"goals": ["say(\"is anyone out there?\")"], "importances": [10.0]}}
+{"t": 1.016, "run": "r_20260826_203931", "actor": "npc_1", "type": "say", "payload": {"text": "is anyone out there?"}}
+{"t": 1.016, "run": "r_20260826_203931", "actor": "npc_1", "type": "memory_write", "payload": {"memory": {"id": "npc_1_m2", "t": 1.0110000000000008, "sense": "did", "observer_loc": [19, 9], "direction": null, "subject": {"kind": "self", "ref": "npc_1", "type": "self", "pos": [19, 9], "info": {"text": "is anyone out there?"}}, "last_accessed": 1.0110000000000008, "access_count": 0}, "novel": false}}
+{"t": 1.016, "run": "r_20260826_203931", "actor": "npc_2", "type": "memory_write", "payload": {"memory": {"id": "npc_2_m2", "t": 1.0110000000000008, "sense": "heard", "observer_loc": [18, 5], "direction": "S", "subject": {"kind": "entity", "ref": "npc_1", "type": "npc", "pos": [19, 9], "info": {"text": "is anyone out there?"}}, "last_accessed": 1.0110000000000008, "access_count": 0}, "novel": false}}
+{"t": 1.031, "run": "r_20260826_203931", "actor": "system", "type": "autotest_result", "payload": {"result": "PASS - npc_2 heard: is anyone out there?"}}
+{"t": 1.031, "run": "r_20260826_203931", "actor": "system", "type": "shutdown", "payload": {"frames": 62}}

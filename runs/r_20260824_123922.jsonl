@@ -1,0 +1,1 @@
+{"t": 0.0, "run": "r_20260824_123922", "actor": "system", "type": "spawn", "payload": {"model": "gemma4", "entities": {"player": [3, 3], "npc_1": [19, 9], "npc_2": [18, 5]}}}

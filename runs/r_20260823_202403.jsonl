@@ -1,0 +1,2 @@
+{"t": 0.0, "run": "r_20260823_202403", "actor": "system", "type": "spawn", "payload": {"entities": {"player": [3, 3], "npc_1": [19, 9], "npc_2": [18, 5]}}}
+{"t": 0.969, "run": "r_20260823_202403", "actor": "system", "type": "shutdown", "payload": {"frames": 60}}

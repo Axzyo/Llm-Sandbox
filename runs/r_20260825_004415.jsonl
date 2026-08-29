@@ -1,0 +1,6 @@
+{"t": 0.0, "run": "r_20260825_004415", "actor": "system", "type": "spawn", "payload": {"model": "gemma4", "entities": {"player": [3, 3], "npc_1": [19, 9], "npc_2": [18, 5]}}}
+{"t": 0.0, "run": "r_20260825_004415", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "npc_2", "pos": [18, 5]}]}}
+{"t": 0.0, "run": "r_20260825_004415", "actor": "npc_1", "type": "memory_write", "payload": {"memory": {"id": "npc_1_m1", "t": 0.016, "type": "observation", "content": "npc_2 came into view at [18, 5]", "entities": ["npc_2"], "location": [19, 9], "last_accessed": 0.016, "access_count": 0}}}
+{"t": 0.0, "run": "r_20260825_004415", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "npc_1", "pos": [19, 9]}]}}
+{"t": 0.0, "run": "r_20260825_004415", "actor": "npc_2", "type": "memory_write", "payload": {"memory": {"id": "npc_2_m1", "t": 0.016, "type": "observation", "content": "npc_1 came into view at [19, 9]", "entities": ["npc_1"], "location": [18, 5], "last_accessed": 0.016, "access_count": 0}}}
+{"t": 1.969, "run": "r_20260825_004415", "actor": "system", "type": "shutdown", "payload": {"frames": 120}}

@@ -1,0 +1,149 @@
+{"t": 0.0, "run": "r_20260824_142757", "actor": "system", "type": "spawn", "payload": {"model": "gemma4", "entities": {"player": [3, 3], "npc_1": [19, 9], "npc_2": [18, 5]}}}
+{"t": 0.016, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "npc_2", "pos": [18, 5]}]}}
+{"t": 0.016, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "npc_1", "pos": [19, 9]}]}}
+{"t": 2.047, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [3, 3], "to": [4, 3]}}
+{"t": 2.219, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [4, 3], "to": [4, 4]}}
+{"t": 2.375, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [4, 4], "to": [4, 5]}}
+{"t": 2.547, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [4, 5], "to": [4, 6]}}
+{"t": 2.704, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [4, 6], "to": [5, 6]}}
+{"t": 2.875, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [5, 6], "to": [6, 6]}}
+{"t": 3.032, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [6, 6], "to": [7, 6]}}
+{"t": 3.204, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [7, 6], "to": [8, 6]}}
+{"t": 3.36, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [8, 6], "to": [9, 6]}}
+{"t": 3.532, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [9, 6], "to": [9, 7]}}
+{"t": 3.688, "run": "r_20260824_142757", "actor": "player", "type": "action_failed", "payload": {"action": "move", "ok": false, "reason": "blocked", "to": [9, 8]}}
+{"t": 3.86, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [9, 7], "to": [10, 7]}}
+{"t": 4.032, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [10, 7], "to": [11, 7]}}
+{"t": 4.172, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [11, 7], "to": [12, 7]}}
+{"t": 4.344, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [12, 7], "to": [13, 7]}}
+{"t": 4.485, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [13, 7], "to": [14, 7]}}
+{"t": 4.516, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "player", "pos": [14, 7]}]}}
+{"t": 4.641, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 7], "to": [15, 7]}}
+{"t": 4.735, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [15, 7]}]}}
+{"t": 4.735, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "player", "pos": [15, 7]}]}}
+{"t": 4.797, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [15, 7], "to": [16, 7]}}
+{"t": 4.954, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [16, 7]}]}}
+{"t": 4.954, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [16, 7]}]}}
+{"t": 5.297, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [16, 7], "to": [16, 6]}}
+{"t": 5.375, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [16, 6]}]}}
+{"t": 5.375, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_left", "id": "player"}]}}
+{"t": 5.579, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [16, 6], "to": [17, 6]}}
+{"t": 5.579, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [17, 6]}]}}
+{"t": 5.579, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "player", "pos": [17, 6]}]}}
+{"t": 6.016, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [17, 6], "to": [17, 7]}}
+{"t": 6.188, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [17, 7], "to": [16, 7]}}
+{"t": 6.219, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [16, 7]}]}}
+{"t": 6.219, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [16, 7]}]}}
+{"t": 6.344, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [16, 7], "to": [15, 7]}}
+{"t": 6.422, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [15, 7]}]}}
+{"t": 6.422, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [15, 7]}]}}
+{"t": 6.719, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [15, 7], "to": [14, 7]}}
+{"t": 6.86, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [14, 7]}]}}
+{"t": 6.86, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_left", "id": "player"}]}}
+{"t": 6.891, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 7], "to": [13, 7]}}
+{"t": 7.063, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_left", "id": "player"}]}}
+{"t": 18503.532, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [13, 7], "to": [14, 7]}}
+{"t": 18503.688, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 7], "to": [15, 7]}}
+{"t": 18503.719, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "player", "pos": [15, 7]}]}}
+{"t": 18503.719, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "player", "pos": [15, 7]}]}}
+{"t": 18503.86, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [15, 7], "to": [16, 7]}}
+{"t": 18503.938, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [16, 7]}]}}
+{"t": 18503.938, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [16, 7]}]}}
+{"t": 18504.313, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [16, 7], "to": [17, 7]}}
+{"t": 18504.36, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [17, 7]}]}}
+{"t": 18504.36, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [17, 7]}]}}
+{"t": 18504.61, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [17, 7], "to": [16, 7]}}
+{"t": 18504.782, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [16, 7], "to": [15, 7]}}
+{"t": 18504.797, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [15, 7]}]}}
+{"t": 18504.797, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [15, 7]}]}}
+{"t": 18504.938, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [15, 7], "to": [14, 7]}}
+{"t": 18505.016, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [14, 7]}]}}
+{"t": 18505.016, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_left", "id": "player"}]}}
+{"t": 18505.688, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 7], "to": [15, 7]}}
+{"t": 18505.86, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [15, 7]}]}}
+{"t": 18505.86, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "player", "pos": [15, 7]}]}}
+{"t": 18506.204, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [15, 7], "to": [14, 7]}}
+{"t": 18506.282, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [14, 7]}]}}
+{"t": 18506.282, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_left", "id": "player"}]}}
+{"t": 18506.891, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 7], "to": [15, 7]}}
+{"t": 18506.891, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [15, 7]}]}}
+{"t": 18506.891, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "player", "pos": [15, 7]}]}}
+{"t": 18508.079, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [15, 7], "to": [14, 7]}}
+{"t": 18508.188, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [14, 7]}]}}
+{"t": 18508.188, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_left", "id": "player"}]}}
+{"t": 18508.235, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 7], "to": [14, 8]}}
+{"t": 18508.407, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 8], "to": [14, 9]}}
+{"t": 18508.407, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_left", "id": "player"}]}}
+{"t": 18508.563, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 9], "to": [14, 10]}}
+{"t": 18508.735, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 10], "to": [14, 11]}}
+{"t": 18508.891, "run": "r_20260824_142757", "actor": "player", "type": "action_failed", "payload": {"action": "move", "ok": false, "reason": "blocked", "to": [15, 11]}}
+{"t": 18509.235, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 11], "to": [14, 12]}}
+{"t": 18509.407, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 12], "to": [15, 12]}}
+{"t": 18509.485, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "player", "pos": [15, 12]}]}}
+{"t": 18510.438, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [15, 12], "to": [14, 12]}}
+{"t": 18510.563, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_left", "id": "player"}]}}
+{"t": 18511.422, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 12], "to": [14, 13]}}
+{"t": 18511.594, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "player", "pos": [14, 13]}]}}
+{"t": 18513.157, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 13], "to": [14, 12]}}
+{"t": 18513.313, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_left", "id": "player"}]}}
+{"t": 18513.829, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 12], "to": [14, 11]}}
+{"t": 18514.11, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 11], "to": [14, 10]}}
+{"t": 18514.516, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 10], "to": [14, 9]}}
+{"t": 18514.766, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 9], "to": [14, 8]}}
+{"t": 18514.766, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "player", "pos": [14, 8]}]}}
+{"t": 18514.985, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 8], "to": [14, 7]}}
+{"t": 18514.985, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "player", "pos": [14, 7]}]}}
+{"t": 18514.985, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_left", "id": "player"}]}}
+{"t": 18515.141, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 7], "to": [14, 6]}}
+{"t": 18515.188, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [14, 6]}]}}
+{"t": 18515.532, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 6], "to": [14, 5]}}
+{"t": 18515.594, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_left", "id": "player"}]}}
+{"t": 18516.282, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 5], "to": [14, 6]}}
+{"t": 18516.454, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "player", "pos": [14, 6]}]}}
+{"t": 18517.094, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 6], "to": [14, 5]}}
+{"t": 18517.094, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_left", "id": "player"}]}}
+{"t": 18517.391, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 5], "to": [14, 4]}}
+{"t": 18520.032, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 4], "to": [13, 4]}}
+{"t": 18520.469, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [13, 4], "to": [14, 4]}}
+{"t": 18520.829, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 4], "to": [14, 3]}}
+{"t": 18522.0, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 3], "to": [14, 2]}}
+{"t": 18523.36, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 2], "to": [14, 1]}}
+{"t": 18524.25, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 1], "to": [14, 2]}}
+{"t": 18525.11, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 2], "to": [15, 2]}}
+{"t": 18525.391, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [15, 2], "to": [15, 1]}}
+{"t": 18527.547, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [15, 1], "to": [14, 1]}}
+{"t": 18530.188, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 1], "to": [14, 2]}}
+{"t": 18530.454, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 2], "to": [14, 1]}}
+{"t": 18530.766, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 1], "to": [15, 1]}}
+{"t": 18531.032, "run": "r_20260824_142757", "actor": "player", "type": "action_failed", "payload": {"action": "move", "ok": false, "reason": "blocked", "to": [15, 0]}}
+{"t": 18532.704, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [15, 1], "to": [14, 1]}}
+{"t": 18533.032, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 1], "to": [13, 1]}}
+{"t": 18533.891, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [13, 1], "to": [14, 1]}}
+{"t": 18534.11, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 1], "to": [14, 2]}}
+{"t": 18534.266, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 2], "to": [14, 3]}}
+{"t": 18534.422, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 3], "to": [14, 4]}}
+{"t": 18534.579, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 4], "to": [14, 5]}}
+{"t": 18534.735, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 5], "to": [13, 5]}}
+{"t": 18535.235, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [13, 5], "to": [14, 5]}}
+{"t": 18535.454, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 5], "to": [14, 6]}}
+{"t": 18535.61, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 6], "to": [14, 7]}}
+{"t": 18535.641, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "player", "pos": [14, 7]}]}}
+{"t": 18535.766, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 7], "to": [14, 8]}}
+{"t": 18535.829, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_left", "id": "player"}]}}
+{"t": 18535.829, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "player", "pos": [14, 8]}]}}
+{"t": 18536.641, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 8], "to": [14, 9]}}
+{"t": 18536.657, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_left", "id": "player"}]}}
+{"t": 18539.86, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 9], "to": [14, 10]}}
+{"t": 18540.204, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 10], "to": [14, 9]}}
+{"t": 18545.407, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 9], "to": [14, 8]}}
+{"t": 18545.407, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "player", "pos": [14, 8]}]}}
+{"t": 18545.563, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 8], "to": [14, 7]}}
+{"t": 18545.61, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "player", "pos": [14, 7]}]}}
+{"t": 18545.61, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_left", "id": "player"}]}}
+{"t": 18545.86, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [14, 7], "to": [15, 7]}}
+{"t": 18546.047, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [15, 7]}]}}
+{"t": 18546.047, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_entered", "id": "player", "pos": [15, 7]}]}}
+{"t": 18548.422, "run": "r_20260824_142757", "actor": "player", "type": "action_complete", "payload": {"action": "move", "ok": true, "from": [15, 7], "to": [14, 7]}}
+{"t": 18548.579, "run": "r_20260824_142757", "actor": "npc_1", "type": "perception", "payload": {"events": [{"kind": "entity_moved", "id": "player", "pos": [14, 7]}]}}
+{"t": 18548.579, "run": "r_20260824_142757", "actor": "npc_2", "type": "perception", "payload": {"events": [{"kind": "entity_left", "id": "player"}]}}
+{"t": 22128.047, "run": "r_20260824_142757", "actor": "system", "type": "shutdown", "payload": {"frames": 1334428}}

@@ -1,0 +1,11 @@
+{
+  "ollama_url": "http://127.0.0.1:11434",
+  "model": "gemma4",
+  "temperature": 0.2,
+  "num_predict": 400,
+  "keep_alive": "30m",
+  "memory_k": 5,
+  "memory_halflife_s": 300,
+  "max_dialogue_turns": 12,
+  "interact_range": 4
+}
