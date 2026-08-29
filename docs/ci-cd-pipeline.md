@@ -38,11 +38,12 @@ needed. Repo admins retain an emergency bypass (see the table), but in the norma
 flow, while `REVIEWER=claude` (the current setting), nothing lands on `main`
 without passing tests *and* being reviewed by the agent.
 
-> Note: `claude-review` going green means Claude successfully ran and posted its
-> review, not that it "approved." Its findings are advisory comments you read on
-> the PR. And the guarantee is only as strong as the `REVIEWER` setting: with
-> `REVIEWER` set to `copilot` or `off` the job is a green no-op (see below), so
-> the check passes without any agent review having run.
+> Note: `claude-review` going green means the Claude action **ran to completion**
+> without erroring — not that it "approved," and not a hard guarantee a comment
+> was posted. Its findings are advisory comments you read on the PR. And the
+> guarantee is only as strong as the `REVIEWER` setting: with `REVIEWER` set to
+> `copilot` or `off` the job is a green no-op (see below), so the check passes
+> without any agent review having run.
 
 ## The two checks
 
@@ -61,16 +62,18 @@ premature complexity, strict validation, and test coverage for changed behavior.
 
 ## Switching the reviewer
 
-The active reviewer is controlled by the repository **variable `REVIEWER`**. The
-workflow guard is a deny-list: only the exact strings `copilot` and `off` stand
-Claude down — **unset, or any other value/typo, runs Claude**.
+The repository **variable `REVIEWER`** controls **only the Claude check**. The
+workflow guard is a deny-list:
 
-| `REVIEWER` | `claude-review` check | Copilot |
-| ---------- | --------------------- | ------- |
-| `claude` (current), unset, or anything else | Claude reviews, gates the merge | off |
-| `both`     | Claude reviews, gates the merge | on (if enabled in settings) |
-| `copilot`  | stands down (job passes as a no-op) | on |
-| `off`      | stands down (job passes as a no-op) | off |
+| `REVIEWER` | `claude-review` check |
+| ---------- | --------------------- |
+| `copilot` or `off` | stands down — job runs but skips the review step and reports green (no-op) |
+| anything else — `claude` (current), `both`, unset, or a typo | Claude reviews, gates the merge |
+
+Copilot review is **separate** and is *not* driven by this variable — it is a
+GitHub ruleset setting (see below) and requires Copilot access on the account.
+The `both`/`copilot` values are just a naming convention for "I've also turned
+Copilot on in settings"; only `copilot`/`off` change what the Claude job does.
 
 Change it with no code edit:
 
@@ -81,9 +84,14 @@ gh variable set REVIEWER --body claude   # or copilot / both / off
 When Claude stands down, the `claude-review` job still runs but skips the review
 step and reports green, so the required check never blocks a merge.
 
-> Copilot code review is a separate GitHub setting and requires Copilot access on
-> the account. It was configured but does not run here because the account has no
-> Copilot code-review access, so `claude` is the active reviewer.
+### Copilot review (optional, independent of `REVIEWER`)
+
+Copilot review is enabled by the **"Automatically request Copilot code review"**
+rule in the `main` ruleset (Settings -> Rules -> Rulesets), *not* by the
+`REVIEWER` variable. It posts advisory comments and is **not** a status check, so
+it never gates a merge. It also only fires if the PR author has Copilot
+code-review access. It was configured here but does not run, because the account
+has no Copilot access — so `claude` is the effective reviewer.
 
 ## Authentication
 
@@ -116,6 +124,8 @@ git switch -c feat/thing          # one branch per feature; never commit to main
 # ...work, commit...
 git push -u origin feat/thing
 gh pr create --base main --fill   # smoke-test + Claude review run automatically
+# if main moved since you branched, the strict check requires an up-to-date
+# branch first:  gh pr update-branch   (or merge main in)
 # wait for both checks to go green, then:
 gh pr merge --squash --delete-branch
 ```
