@@ -164,6 +164,7 @@ def main():
     tag = args.tag or time.strftime("%Y%m%d_%H%M%S")
     rng = random.Random(args.seed)
 
+    scores_path = os.path.join(out_dir, "scores.jsonl")
     all_rows = []
     for n in range(1, args.episodes + 1):
         ep_id = f"ep_{tag}_{n:03d}"
@@ -171,13 +172,14 @@ def main():
         t0 = time.monotonic()
         rows = run_episode(ep_id, path, provider, cfg, rng, args.npcs, args.budget, args.dt)
         all_rows.extend(rows)
+        # append each episode's scores as it finishes: a rollout killed partway
+        # (slow local model, resource contention) keeps every completed episode
+        with open(scores_path, "a", encoding="utf-8") as f:
+            for row in rows:
+                f.write(json.dumps(row) + "\n")
         print(f"{ep_id}: {len(rows)} NPCs, wall {time.monotonic() - t0:.0f}s -> "
               + ", ".join(f"{r['npc']} R={r['return']:g} ({r['cause']})" for r in rows), flush=True)
 
-    scores_path = os.path.join(out_dir, "scores.jsonl")
-    with open(scores_path, "a", encoding="utf-8") as f:
-        for row in all_rows:
-            f.write(json.dumps(row) + "\n")
     print(f"\nappended {len(all_rows)} score rows -> {scores_path}")
     summarize(all_rows)
 
