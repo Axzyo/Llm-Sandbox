@@ -3,3 +3,8 @@ __pycache__/
 *.pyo
 .venv/
 venv/
+
+# generated training artifacts (rollouts, adapters, merged models, datasets)
+runs/episodes/
+train/rounds/
+train/data/
