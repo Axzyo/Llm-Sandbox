@@ -55,6 +55,9 @@ def make_provider(args, cfg):
         from sim.provider import TransformersProvider
         return TransformersProvider(args.model or cfg["model"], adapter=args.adapter,
                                     temperature=cfg["temperature"], num_predict=cfg["num_predict"])
+    if args.provider == "anthropic":
+        from sim.provider import AnthropicProvider
+        return AnthropicProvider(args.model or "claude-sonnet-5", num_predict=cfg["num_predict"])
     return OllamaProvider(cfg["ollama_url"], args.model or cfg["model"],
                           cfg["temperature"], cfg["num_predict"],
                           keep_alive=cfg.get("keep_alive", "30m"))
@@ -142,8 +145,8 @@ def main():
     ap.add_argument("--dt", type=float, default=0.2, help="sim seconds per step")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out-dir", default="runs/episodes")
-    ap.add_argument("--provider", choices=["ollama", "transformers"], default="ollama")
-    ap.add_argument("--model", default=None, help="override config model (ollama name or HF path)")
+    ap.add_argument("--provider", choices=["ollama", "transformers", "anthropic"], default="ollama")
+    ap.add_argument("--model", default=None, help="override model (ollama name, HF path, or claude-* id)")
     ap.add_argument("--adapter", default=None, help="LoRA adapter dir (transformers provider)")
     ap.add_argument("--tag", default=None, help="filename tag; default = timestamp")
     ap.add_argument("--summarize", metavar="SCORES", help="re-print aggregates from a scores.jsonl and exit")
