@@ -39,6 +39,16 @@ merge into `main`.
    whenever behavior or the I/O contract changes. New or changed behavior should
    have coverage.
 
+7. **No indirection tables.**
+   A dict/table earns its place only when its values are data you can't get by
+   accessing the real field directly. Delete a table whose values are just other
+   names or attributes (aliases), whose entries are identity (`key == value`), or
+   whose keys are never read (that's a list). If a table exists only to translate
+   one name into another, fix the name at the source instead — e.g. don't map
+   `{"health": "hp"}` when the field could just be called `health`. Data tables
+   (real payloads, coordinates, effect specs, name->function dispatch whose key is
+   used) are fine and encouraged (see rule 2).
+
 ## Working notes
 
 - The NPC's only source of what things do is outcome memories, not names or
