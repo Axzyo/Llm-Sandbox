@@ -68,14 +68,19 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--top", type=float, default=0.5, help="per-profile quantile kept for training")
     ap.add_argument("--base", default="Qwen/Qwen2.5-3B-Instruct", help="student base model")
+    ap.add_argument("--start-round", type=int, default=1,
+                    help="round number to begin at (resume a partial run without redoing earlier rounds)")
+    ap.add_argument("--init-model", default=None,
+                    help="Ollama model to roll out the FIRST round with (e.g. student-r1); "
+                         "default gemma4 baseline when starting fresh")
     args = ap.parse_args()
 
     rounds_dir = os.path.join(ROOT, "train", "rounds")
     os.makedirs(rounds_dir, exist_ok=True)
     summary_path = os.path.join(rounds_dir, "summary.jsonl")
 
-    prev_model = None                       # Ollama model of the last round's student
-    for r in range(1, args.rounds + 1):
+    prev_model = args.init_model            # Ollama model of the last round's student
+    for r in range(args.start_round, args.start_round + args.rounds):
         round_dir = os.path.join(rounds_dir, f"round_{r}")
         ep_dir = os.path.join(round_dir, "episodes")
         scores = os.path.join(ep_dir, "scores.jsonl")
