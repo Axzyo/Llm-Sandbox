@@ -21,6 +21,12 @@ PERCEPTION_INTERVAL = 0.2
 ENABLE_NPC_MEMORY = True
 ENABLE_NPC_THINKS = True
 
+# Interoception: entity stats whose changes the owner FEELS (a `felt` memory,
+# the internal counterpart of `did`). Felt event name -> Entity attribute; names
+# match the snapshot vocabulary the agent already reads. New internal state
+# (level, stamina, ...) is one entry here.
+FELT_STATS = {"health": "hp", "hunger": "hunger", "thirst": "thirst"}
+
 
 def build_snapshot(npc, world, pending_events: list, now_t: float) -> dict:
     return {
@@ -206,6 +212,7 @@ class Engine:
         self.pending_obs = {n.id: [] for n in npcs}
         self.thinking = {n.id: False for n in npcs}
         self.next_think_at = {n.id: 0.0 for n in npcs}
+        self._felt_last: dict = {}                        # npc id -> {stat: last rounded value}
         self.hear_log: list = []
         self.sim_t = 0.0
         self.next_perceive_at = 0.0
@@ -242,6 +249,12 @@ class Engine:
                 # geometry near current goal locations.
                 brain.perceive_tiles(visible_tiles(self.world, npc))
                 brain.maintain_spatial(npc.goals.locations())
+                # interoception: stat shifts become `felt` memories through the same
+                # pipeline. They are not perception events (the snapshot already
+                # carries the current numbers); memory is what gives them a history.
+                felt = self._sense_stats(npc)
+                if felt:
+                    brain.record_events(felt, self.sim_t, location=[npc.x, npc.y])
             events = self.trackers[npc.id].update(self.world, npc)
             if events:
                 self.journal.log(npc.id, "perception", events=events)
@@ -253,6 +266,19 @@ class Engine:
                         npc.target = ev["id"]
                     elif ev["kind"] == "entity_left" and npc.target == ev["id"]:
                         npc.target = None
+
+    def _sense_stats(self, npc) -> list:
+        """One felt event per watched stat whose value — rounded, exactly as the
+        agent perceives it in its snapshot — changed since the last pass. The
+        first pass only sets the baseline (being spawned is not a change)."""
+        current = {name: round(getattr(npc, attr)) for name, attr in FELT_STATS.items()}
+        last = self._felt_last.get(npc.id)
+        self._felt_last[npc.id] = current
+        if last is None:
+            return []
+        return [{"kind": "felt_stat", "stat": name, "value": cur,
+                 "direction": "rising" if cur > last[name] else "falling"}
+                for name, cur in current.items() if cur != last[name]]
 
     def _think(self) -> None:
         for npc in list(self.npcs):

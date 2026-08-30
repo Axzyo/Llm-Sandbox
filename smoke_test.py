@@ -393,6 +393,61 @@ def test_episode_runner():
         "low-return explorers must not lose to high-return survivalists' raw numbers"
 
 
+def test_felt_memories():
+    # event -> structured 'felt' memory (did = external act, felt = internal state)
+    mems = memories_from_event({"kind": "felt_stat", "stat": "thirst", "value": 82,
+                                "direction": "falling"}, [5, 5], 10.0, "npc_1")
+    assert len(mems) == 1 and mems[0]["sense"] == "felt"
+    s = mems[0]["subject"]
+    assert s["kind"] == "stat" and s["ref"] == "thirst" and s["type"] == "falling"
+    assert s["info"] == {"stat": "thirst", "value": 82}
+
+    def stat_subject(name, val, direction):
+        return {"kind": "stat", "ref": name, "type": direction, "pos": None,
+                "info": {"stat": name, "value": val}}
+
+    # a ticking stat folds into ONE spanning run (only info differs each step)
+    st = MemoryStore("n", consolidator=Consolidator())
+    run, _ = st.record("felt", stat_subject("hunger", 99, "falling"), [1, 1], 2.0)
+    for val, t in ((98, 4.0), (97, 6.0), (96, 8.0)):     # 2s cadence = the real drain rate
+        _, merged = st.record("felt", stat_subject("hunger", val, "falling"), [1, 1], t)
+        assert merged is True, f"tick at t={t} must fold into the run"
+    assert len(st) == 1 and run["count"] == 4
+    assert run["origin"]["info"]["value"] == 99 and run["subject"]["info"]["value"] == 96
+    assert render_memory(run) == "I felt my hunger fell from 99 to 96", render_memory(run)
+
+    # another stat at the SAME value must not fold in (ref + info differ)
+    _, merged = st.record("felt", stat_subject("thirst", 96, "falling"), [1, 1], 8.5)
+    assert merged is False and len(st) == 2
+
+    # a direction reversal starts a new record (type + info differ)
+    _, merged = st.record("felt", stat_subject("hunger", 97, "rising"), [1, 1], 9.0)
+    assert merged is False and len(st) == 3
+
+    # recall can filter on the new sense, and felt runs are retrievable
+    rec = validate_intent({"action": "recall", "params": {"query": "hunger", "sense": "felt"}})
+    assert rec["params"]["sense"] == "felt"
+    got = st.retrieve(tokenize("thirst"), now_t=9.5, query_sense="felt", k=1)
+    assert got and got[0]["subject"]["ref"] == "thirst"
+
+    # the engine wires interoception through the same pipeline: draining needs
+    # produce merged felt runs, not a flood of records
+    from sim.world import World
+    world = World(6, 6)
+    npc = Entity("npc_1", "npc_1", "npc", 1, 1)
+    world.entities[npc.id] = npc
+    j = Journal(os.path.join(tempfile.mkdtemp(), "felt.jsonl"), "felt")
+    eng = Engine(world, [npc], {"npc_1": Brain("npc_1", FakeProvider([]))}, j)
+    for _ in range(16):
+        eng.step(0.5)                    # 8 sim-seconds of hunger/thirst drain
+    j.close()
+    felt = [m for m in eng.brains["npc_1"].store.memories if m["sense"] == "felt"]
+    by_stat = {m["subject"]["ref"] for m in felt}
+    assert by_stat == {"hunger", "thirst"}, by_stat   # health held full -> nothing felt
+    assert all(m["count"] > 1 for m in felt), "ticking stats must consolidate into runs"
+    assert all(m["subject"]["type"] == "falling" for m in felt)
+
+
 def test_curiosity():
     b = Brain("npc_1", object())
     snap = {"t": 1.0, "self_id": "npc_1", "self_pos": [5, 5],
@@ -852,6 +907,7 @@ def main() -> None:
     test_reward()
     test_engine_headless()
     test_episode_runner()
+    test_felt_memories()
     test_curiosity()
     test_brain_validation()
     test_goal_infrastructure()

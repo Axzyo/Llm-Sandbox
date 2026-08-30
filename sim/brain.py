@@ -42,7 +42,7 @@ The actions a plan may contain:
 
 Three special replies stand alone (NOT inside a goal). After a recall or look you will be shown the result and get to choose again:
 - do nothing this turn, just observe: {"action":"wait","reason":"<why>"}
-- search your memory before deciding: {"action":"recall","params":{"query":"<what to remember>","sense":"saw|heard|did (optional)"},"reason":"<why>"}
+- search your memory before deciding: {"action":"recall","params":{"query":"<what to remember>","sense":"saw|heard|did|felt (optional)"},"reason":"<why>"}
 - look at the terrain you remember around a tile: {"action":"look","params":{"x":<int>,"y":<int>},"reason":"<why>"}
 
 Rules:
@@ -104,7 +104,7 @@ def _validate_action(obj) -> dict | None:
             return None
         out = {"action": "recall", "params": {"query": query.strip()[:120]}}
         sense = params.get("sense")
-        if sense in ("saw", "heard", "did"):
+        if sense in ("saw", "heard", "did", "felt"):
             out["params"]["sense"] = sense
         return out
     if action == "look":
@@ -270,6 +270,15 @@ def memories_from_event(ev, observer_loc, now: float, self_id: str) -> list:
         subj = {"kind": "self", "ref": self_id, "type": "self",
                 "pos": list(observer_loc) if observer_loc else None, "info": {"text": ev.get("text", "")}}
         return [dict(sense="did", subject=subj, observer_loc=observer_loc, now=now, direction=None)]
+    if kind == "felt_stat":
+        # interoception: an internal stat shifted (`did` = external act, `felt` =
+        # internal state). Direction lives in subject.type so a run of same-direction
+        # changes consolidates (only info differs) while a reversal, or another stat,
+        # differs in two fields and starts its own record.
+        stat = ev.get("stat")
+        subj = {"kind": "stat", "ref": stat, "type": ev.get("direction", "changed"),
+                "pos": None, "info": {"stat": stat, "value": ev.get("value")}}
+        return [dict(sense="felt", subject=subj, observer_loc=observer_loc, now=now, direction=None)]
     if kind == "heard_say":
         spk = ev.get("speaker")
         spos = ev.get("speaker_pos")
@@ -320,6 +329,14 @@ def render_memory(m: dict) -> str:
         if outcome in (None, "ok"):              # interact
             return f"I interacted with {who} and {effect}" if effect else f"I interacted with {who}"
         return f"I tried to interact with {who} ({outcome})"
+    if sense == "felt" and s.get("kind") == "stat":
+        val = (s.get("info") or {}).get("value")
+        first = ((m.get("origin") or {}).get("info") or {}).get("value")
+        if first is not None and first != val:   # a consolidated run spans first -> latest
+            verb = {"rising": "rose", "falling": "fell"}.get(s.get("type"), "changed")
+            return f"I felt my {ref} {verb} from {first} to {val}"
+        word = {"rising": "rise", "falling": "fall"}.get(s.get("type"), "change")
+        return f"I felt my {ref} {word} to {val}"
     return f"something happened ({(s.get('info') or {}).get('raw', '')})"
 
 
