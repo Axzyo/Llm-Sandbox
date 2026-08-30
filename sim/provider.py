@@ -43,6 +43,109 @@ def _text_value_so_far(raw: str):
     return "".join(out), False
 
 
+class AnthropicProvider:
+    """chat_json served by Claude via the Anthropic API — a strong TEACHER policy
+    for round-0 rollouts (it reasons over the survival signal where the local
+    models idle). Same contract as OllamaProvider so the Brain is unchanged.
+
+    Sonnet 5 specifics honored here: temperature/sampling params are rejected
+    (never sent); the big static system prompt is cache-marked so repeated calls
+    in an episode pay ~10% for it. The key is read from the environment by the
+    SDK (ANTHROPIC_API_KEY / an `ant` profile) — never passed in code."""
+
+    def __init__(self, model: str = "claude-sonnet-5", num_predict: int = 400,
+                 effort: str = "low"):
+        import anthropic
+        self.client = anthropic.Anthropic()
+        self.model = model
+        self.num_predict = num_predict
+        self.effort = effort            # low is plenty for a per-turn goal-set; keeps cost/latency down
+        self._use_effort = True         # dropped automatically if this SDK/model rejects it
+
+    def warm(self) -> None:
+        pass                            # hosted API: no local model to preload
+
+    def chat_json(self, system: str, user: str) -> dict:
+        kw = dict(
+            model=self.model,
+            max_tokens=self.num_predict,
+            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": user}],
+        )
+        if self._use_effort:
+            kw["output_config"] = {"effort": self.effort}
+        try:
+            resp = self.client.messages.create(**kw)
+        except Exception as exc:        # SDK (TypeError) or server (400) rejects effort -> drop it, retry once
+            if self._use_effort and ("output_config" in str(exc) or "effort" in str(exc)
+                                     or isinstance(exc, TypeError)):
+                self._use_effort = False
+                kw.pop("output_config", None)
+                resp = self.client.messages.create(**kw)
+            else:
+                raise
+        if resp.stop_reason == "refusal":
+            raise ValueError(f"model refused: {getattr(resp.stop_details, 'category', '?')}")
+        text = "".join(b.text for b in resp.content if b.type == "text").strip()
+        if text.startswith("```"):      # tolerate a fenced ```json ... ``` reply
+            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        parsed = json.loads(text)       # strict: a non-JSON reply raises, like the others
+        if not isinstance(parsed, dict):
+            raise ValueError("model output was not a JSON object")
+        return parsed
+
+
+class TransformersProvider:
+    """Same chat_json contract as OllamaProvider, served by a local HF checkpoint
+    (optionally with a LoRA adapter) — how a trained student rolls out episodes.
+    torch/transformers/peft import lazily at construction, so the sim proper
+    never needs the GPU stack installed."""
+
+    def __init__(self, model_path: str, adapter: str | None = None,
+                 temperature: float = 0.2, num_predict: int = 400):
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        self.model = model_path            # the name, matching OllamaProvider.model
+        self.temperature = temperature
+        self.num_predict = num_predict
+        self._torch = torch
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+        try:
+            from transformers import BitsAndBytesConfig
+            quant = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16)
+            net = AutoModelForCausalLM.from_pretrained(model_path, quantization_config=quant,
+                                                       device_map="auto")
+        except Exception:                  # no bitsandbytes (Windows) -> fp16 fallback
+            net = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float16,
+                                                       device_map="auto")
+        if adapter:
+            from peft import PeftModel
+            net = PeftModel.from_pretrained(net, adapter)
+        self._net = net.eval()
+
+    def chat_json(self, system: str, user: str) -> dict:
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        inputs = self.tokenizer.apply_chat_template(
+            messages, add_generation_prompt=True, return_tensors="pt"
+        ).to(self._net.device)
+        with self._torch.no_grad():
+            out = self._net.generate(
+                inputs,
+                max_new_tokens=self.num_predict,
+                do_sample=self.temperature > 0,
+                temperature=self.temperature if self.temperature > 0 else None,
+                pad_token_id=self.tokenizer.eos_token_id,
+            )
+        text = self.tokenizer.decode(out[0][inputs.shape[1]:], skip_special_tokens=True).strip()
+        parsed = json.loads(text)          # strict: a non-JSON reply raises, like OllamaProvider
+        if not isinstance(parsed, dict):
+            raise ValueError("model output was not a JSON object")
+        return parsed
+
+
 class OllamaProvider:
     def __init__(self, url: str, model: str, temperature: float = 0.2, num_predict: int = 400,
                  timeout: int = 120, keep_alive: str = "10m"):

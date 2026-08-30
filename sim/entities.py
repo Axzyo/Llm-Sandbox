@@ -17,6 +17,7 @@ class Entity:
     hearing_radius: int = 12
     interact_range: int = 1
     move_interval: float = 0.15
+    think_interval: float = 3.0       # idle decision cadence (s); novel events think sooner
     inventory: list = field(default_factory=list)
     drives: dict = field(default_factory=lambda: {"survival": 1.0, "curiosity": 0.5})  # personality = weights
     next_move_at: float = 0.0

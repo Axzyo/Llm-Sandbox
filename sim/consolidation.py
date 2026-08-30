@@ -18,7 +18,10 @@ This is deliberately generic: it is not movement-specific. Movement is simply th
 common case where the one differing field is `pos`.
 """
 SUBJECT_FIELDS = ("kind", "ref", "type", "pos", "info")
-DEFAULT_GAP_S = 2.0
+# Gap sits comfortably above the slowest felt-stat cadence (1 unit / 2s at the
+# current hunger drain rate), so a continuously ticking stat folds into one run
+# instead of fragmenting on timing jitter.
+DEFAULT_GAP_S = 3.0
 DEFAULT_MAX_DIFF = 1
 
 

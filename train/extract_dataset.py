@@ -12,14 +12,22 @@ json.dumps(goals_to_obj(validated goals)) — exactly the object the game would 
 (extras stripped, importance clamped), so the model learns the behavior the sim
 accepts.
 
+With --scores (a scores.jsonl from train/run_episodes.py), only decisions from
+HIGH-RETURN trajectories are kept: NPCs are bucketed by drive profile and the
+top --top quantile of each bucket survives — returns are normalized per profile,
+so good survivalists AND good explorers both make the cut, not just whichever
+profile scores higher numerically.
+
 Usage:
     python train/extract_dataset.py                # all runs/*.jsonl -> train/data/sft.jsonl
     python train/extract_dataset.py --runs runs --out train/data/sft.jsonl --report
+    python train/extract_dataset.py --runs runs/episodes --scores runs/episodes/scores.jsonl --top 0.5
 """
 import argparse
 import collections
 import glob
 import json
+import math
 import os
 import sys
 
@@ -41,19 +49,44 @@ def iter_events(paths):
                     continue
 
 
-def extract(paths):
+def load_keep_set(scores_path: str, top: float) -> set:
+    """The (run file, npc) pairs whose trajectories train: per drive-profile
+    bucket, the NPCs in the top `top` quantile by return."""
+    buckets = collections.defaultdict(list)
+    with open(scores_path, encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                row = json.loads(line)
+                buckets[row["profile"]].append(row)
+    keep = set()
+    for prof, rows in sorted(buckets.items()):
+        rows.sort(key=lambda r: r["return"], reverse=True)
+        n_keep = max(1, math.ceil(len(rows) * top))
+        kept = rows[:n_keep]
+        keep.update((r["file"], r["npc"]) for r in kept)
+        print(f"profile {prof}: kept {n_keep}/{len(rows)} "
+              f"(return >= {kept[-1]['return']:g})")
+    return keep
+
+
+def extract(paths, keep=None):
     """Yield (system, user, assistant_json, meta) for each prompt->goal-set pair.
 
     Pairing mirrors the logger: within one actor's stream, a `prompt` is
     immediately followed by its `response`. We hold the last prompt per actor and
     consume it on the next response. Only goal-set responses become examples;
-    recall/look/wait/bad replies are counted and skipped.
+    recall/look/wait/bad replies are counted and skipped. With `keep` (a set of
+    (run file basename, actor)), decisions from any other trajectory are skipped.
     """
     pending = {}  # actor -> prompt payload
     stats = collections.Counter()
-    for _path, ev in iter_events(paths):
+    for path, ev in iter_events(paths):
         etype = ev.get("type")
         actor = ev.get("actor")
+        if keep is not None and etype in ("prompt", "response") \
+                and (os.path.basename(path), actor) not in keep:
+            stats["filtered_low_return"] += 1
+            continue
         if etype == "prompt":
             pending[actor] = ev.get("payload", {})
             stats["prompts"] += 1
@@ -92,21 +125,29 @@ def main():
     ap.add_argument("--runs", default="runs", help="dir of *.jsonl run logs")
     ap.add_argument("--out", default="train/data/sft.jsonl")
     ap.add_argument("--report", action="store_true", help="print stats only, write nothing")
+    ap.add_argument("--scores", help="scores.jsonl from run_episodes: keep only high-return trajectories")
+    ap.add_argument("--top", type=float, default=0.5, help="per-profile quantile of NPCs to keep (with --scores)")
     args = ap.parse_args()
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     runs_dir = args.runs if os.path.isabs(args.runs) else os.path.join(root, args.runs)
-    paths = sorted(glob.glob(os.path.join(runs_dir, "*.jsonl")))
+    paths = sorted(p for p in glob.glob(os.path.join(runs_dir, "*.jsonl"))
+                   if os.path.basename(p) != "scores.jsonl")   # the score index, not a run log
     if not paths:
         print(f"no run logs found in {runs_dir}", file=sys.stderr)
         sys.exit(1)
+
+    keep = None
+    if args.scores:
+        scores = args.scores if os.path.isabs(args.scores) else os.path.join(root, args.scores)
+        keep = load_keep_set(scores, args.top)
 
     seen = set()
     rows = []
     action_counts = collections.Counter()
     goal_counts = collections.Counter()
     dup = 0
-    gen = extract(paths)
+    gen = extract(paths, keep=keep)
     stats = collections.Counter()
     try:
         while True:
@@ -129,6 +170,8 @@ def main():
     print(f"skipped (thinking) : recall={stats['skipped_recall']} look={stats['skipped_look']}")
     print(f"skipped (wait)     : {stats['skipped_wait']} (do-nothing)")
     print(f"skipped (bad)      : {stats['skipped_bad']} (failed the response filter)")
+    if keep is not None:
+        print(f"filtered (return)  : {stats['filtered_low_return']} events from low-return trajectories")
     print(f"goal-set pairs     : {stats['goal_sets']}")
     print(f"exact duplicates   : {dup} (dropped)")
     print(f"UNIQUE examples    : {len(rows)}")

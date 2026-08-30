@@ -1,5 +1,4 @@
 import argparse
-import json
 import os
 import queue
 import random
@@ -10,18 +9,16 @@ import pygame
 
 from sim.actions import DIRS, attempt_move, evaluate_interact
 from sim.brain import Brain
+from sim.config import load_config
+from sim.engine import Engine, broadcast, reap_dead
 from sim.entities import Entity
 from sim.goals import goal_from_intent
 from sim.journal import Journal
-from sim.terrain import HEIGHT, SPAWNS, WIDTH, build_test_map, place_resources, tick_resources, interact_with, use_item
-from sim.pathing import next_step
-from sim.needs import tick_needs, sensations as needs_sensations
-from sim.perception import PerceptionTracker, visible_entities, visible_tiles
+from sim.terrain import HEIGHT, SPAWNS, WIDTH, build_test_map, place_resources
 from sim.provider import OllamaProvider
 from sim.world import chebyshev
 
 TILE_SIZE = 32
-PERCEPTION_INTERVAL = 0.2
 
 KEY_DIRS = [
     (pygame.K_e, "up"),
@@ -39,197 +36,11 @@ COLOR_TEXT = (225, 228, 235)
 COLOR_CHAT = (255, 236, 180)
 COLOR_TARGET = (255, 240, 120)
 
-ENABLE_NPC_MEMORY = True
-ENABLE_NPC_THINKS = True
-
 AUTOTEST_MESSAGE = "hello, can anyone hear me?"
 AUTOTEST_TIMEOUT_S = 30.0
 
 think_q: queue.Queue = queue.Queue()
 result_q: queue.Queue = queue.Queue()
-
-
-def load_config() -> dict:
-    cfg = {
-        "ollama_url": "http://localhost:11434",
-        "model": "gemma4",
-        "temperature": 0.2,
-        "num_predict": 400,
-        "keep_alive": "30m",
-        "memory_k": 5,
-        "memory_halflife_s": 300.0,
-        "interact_range": 4,
-    }
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
-    if os.path.exists(path):
-        with open(path, encoding="utf-8") as fh:
-            cfg.update(json.load(fh))
-    return cfg
-
-
-def build_snapshot(npc, world, pending_events: list, now_t: float) -> dict:
-    return {
-        "t": round(now_t, 2),
-        "self_id": npc.id,
-        "self_pos": [npc.x, npc.y],
-        "health": round(npc.hp),                # three survival needs, 0 (empty) .. 100 (full)
-        "hunger": round(npc.hunger),
-        "thirst": round(npc.thirst),
-        "sensations": needs_sensations(npc),    # how those needs feel right now
-        "drives": npc.drives,                    # personality weights (survival, curiosity, ...)
-        "vision_radius": npc.vision_radius,
-        "hearing_radius": npc.hearing_radius,
-        "interact_range": npc.interact_range,
-        "visible_entities": [{"id": e.id, "type": e.kind, "pos": [e.x, e.y]} for e in visible_entities(world, npc)],
-        "recent_perceptions": pending_events[-12:],
-    }
-
-
-def remember_action(brains: dict, npc, event: dict, sim_t: float) -> None:
-    """Write a 'did' memory of a resolved action outcome, through the same pipeline."""
-    if ENABLE_NPC_MEMORY and npc.id in brains:
-        brains[npc.id].record_events([event], sim_t, location=[npc.x, npc.y])
-
-
-def broadcast(world, speaker, text: str, brains: dict, pending_obs: dict, sim_t: float,
-              hear_log: list, journal: Journal) -> None:
-    """Speech is a broadcast: the speaker remembers saying it, and every entity within
-    its own hearing_radius forms a `heard` memory (walls don't block sound). The player,
-    if in earshot, just sees it in the log."""
-    journal.log(speaker.id, "say", text=text)
-    print(f"[{sim_t:7.1f}] {'you' if speaker.id == 'player' else speaker.id}: {text}", flush=True)
-    if ENABLE_NPC_MEMORY and speaker.id in brains:
-        remember_action(brains, speaker, {"kind": "did_say", "text": text}, sim_t)
-    for e in world.entities.values():
-        if e.id == speaker.id:
-            continue
-        if chebyshev(speaker.x, speaker.y, e.x, e.y) > e.hearing_radius:
-            continue
-        event = {"kind": "heard_say", "speaker": speaker.id, "speaker_type": speaker.kind,
-                 "speaker_pos": [speaker.x, speaker.y], "text": text}
-        if ENABLE_NPC_MEMORY and e.id in brains:
-            brains[e.id].record_events([event], sim_t, location=[e.x, e.y])
-            pending_obs[e.id].append(event)
-        elif e.id == "player":
-            hear_log.append(f"{speaker.id}: {text}")
-
-
-def enact_instant(world, npc, action_obj, journal: Journal, sim_t: float, brains: dict,
-                  pending_obs: dict, hear_log: list) -> str:
-    """Enact a one-tick action (interact / inventory / say). Returns 'done' or 'failed'."""
-    action = action_obj.get("action")
-    params = action_obj.get("params") or {}
-    if action == "interact":
-        res = evaluate_interact(world, npc, params.get("target"))
-        target = world.entities.get(res.get("target"))
-        tpos = [target.x, target.y] if target is not None else None
-        ttype = target.kind if target is not None else "entity"
-        if res["ok"]:
-            journal.log(npc.id, "action_complete", action="interact", **res)
-            # a resource target's data decides what interacting does (drink / pick)
-            eff = interact_with(target, npc, sim_t) if target is not None else None
-            effect = None
-            if eff is not None:
-                journal.log(npc.id, "resource_use", target=target.id, **eff)
-                if eff["did"] == "drink":
-                    effect = f"{eff['stat']} +{eff['gained']:g}"
-                elif eff["did"] == "harvest":
-                    effect = f"picked a {eff['yields']}" if eff["ok"] else "nothing to pick"
-            remember_action(brains, npc, {"kind": "did_interact", "target": res.get("target"),
-                                          "target_type": ttype, "target_pos": tpos,
-                                          "outcome": "ok", "effect": effect}, sim_t)
-            return "done"
-        journal.log(npc.id, "action_failed", action="interact", **res)
-        outcome = "out_of_range" if not res.get("range_ok") else ("no_los" if not res.get("los_ok") else "failed")
-        remember_action(brains, npc, {"kind": "did_interact", "target": params.get("target"),
-                                      "target_type": ttype, "target_pos": tpos, "outcome": outcome}, sim_t)
-        return "failed"
-    if action == "inventory":
-        op, item = params.get("op"), params.get("item")
-        if item in npc.inventory:
-            # 'use' applies the item's own effect (eat a berry -> hunger); the item
-            # is consumed. drop/arrange have no effect yet.
-            used = use_item(npc, item) if op == "use" else None
-            journal.log(npc.id, "action_complete", action="inventory", op=op, item=item,
-                        **(used or {}))
-            effect = f"{used['stat']} +{used['gained']:g}" if used else None
-            remember_action(brains, npc, {"kind": "did_inventory", "op": op, "item": item,
-                                          "outcome": "ok", "effect": effect}, sim_t)
-            return "done"
-        journal.log(npc.id, "action_failed", action="inventory", op=op, item=item, reason="no_such_item")
-        remember_action(brains, npc, {"kind": "did_inventory", "op": op, "item": item, "outcome": "no_such_item"}, sim_t)
-        return "failed"
-    if action == "say":
-        broadcast(world, npc, params.get("text", ""), brains, pending_obs, sim_t, hear_log, journal)
-        return "done"
-    # wait/recall are thinking-layer choices and never become goals, so they don't reach here
-    journal.log(npc.id, "action_failed", action=str(action), reason="unknown_action")
-    return "failed"
-
-
-def progress_move(world, npc, goal, action_obj, journal: Journal, sim_t: float, brains: dict) -> str:
-    """Advance a durative move action one step. Returns 'active' (more to go),
-    'done' (arrived) or 'failed' (unreachable)."""
-    params = action_obj.get("params") or {}
-    tx, ty = params.get("x"), params.get("y")
-    if (npc.x, npc.y) == (tx, ty):
-        remember_action(brains, npc, {"kind": "did_move", "pos": [tx, ty], "outcome": "arrived"}, sim_t)
-        return "done"
-    if goal.started_step != goal.step:
-        goal.started_step = goal.step
-        journal.log(npc.id, "action_start", action="move", to=[tx, ty], source="goal")
-    if sim_t < npc.next_move_at:
-        return "active"
-    step = next_step(world, (npc.x, npc.y), (tx, ty))
-    if step is None:
-        journal.log(npc.id, "action_failed", action="move", reason="unreachable", to=[tx, ty])
-        remember_action(brains, npc, {"kind": "did_move", "pos": [tx, ty], "outcome": "unreachable"}, sim_t)
-        return "failed"
-    result = attempt_move(world, npc, step[0] - npc.x, step[1] - npc.y)
-    npc.next_move_at = sim_t + npc.move_interval
-    if result["ok"]:
-        journal.log(npc.id, "action_complete", action="move", **result)
-    # blocked/occupied: stay active and retry next tick (pathing reroutes)
-    return "active"
-
-
-def advance_goals(world, npc, journal: Journal, sim_t: float, brains: dict,
-                  pending_obs: dict, hear_log: list) -> None:
-    """Work the NPC's top goal for this tick. Durative goals stay 'active' and
-    resume next tick unless a higher-importance goal has since preempted them."""
-    goal = npc.goals.current()
-    if goal is None:
-        return
-    action_obj = goal.current_action
-    if action_obj is None:                 # plan exhausted -> the goal is done
-        npc.goals.complete(goal)
-        return
-    goal.status = "active"
-    if action_obj.get("action") == "move":
-        outcome = progress_move(world, npc, goal, action_obj, journal, sim_t, brains)
-    else:
-        outcome = enact_instant(world, npc, action_obj, journal, sim_t, brains, pending_obs, hear_log)
-    if outcome == "done":
-        if not goal.advance():             # no actions left -> whole plan complete
-            npc.goals.complete(goal)
-    elif outcome == "failed":
-        npc.goals.fail(goal)               # a failed step abandons the whole plan
-    # "active": leave it in place for next tick
-
-
-def reap_dead(npcs: list, npcs_by_id: dict, world, journal: Journal, sim_t: float) -> list:
-    """Remove NPCs whose health has hit 0 — death is permanent, there is no respawn.
-    A dead NPC leaves the world (others perceive it disappear), stops thinking and
-    perceiving, and its death is logged. Returns the ones that died this tick."""
-    dead = [n for n in npcs if n.hp <= 0.0]
-    for npc in dead:
-        cause = "dehydration" if npc.thirst <= 0.0 else ("starvation" if npc.hunger <= 0.0 else "unknown")
-        journal.log(npc.id, "death", pos=[npc.x, npc.y], cause=cause)
-        print(f"[{sim_t:7.1f}] {npc.id} died of {cause}", flush=True)
-        world.entities.pop(npc.id, None)
-        npcs_by_id.pop(npc.id, None)
-        npcs.remove(npc)
-    return dead
 
 
 def think_worker(brains: dict, live_text: dict, live_lock: threading.Lock) -> None:
@@ -289,10 +100,8 @@ def main() -> None:
         Entity("npc_1", "npc_1", "npc", *spawns["npc_1"]),
         Entity("npc_2", "npc_2", "npc", *spawns["npc_2"]),
     ]
-    npcs_by_id = {}
     for e in [player, *npcs]:
         world.entities[e.id] = e
-        npcs_by_id[e.id] = e
         e.interact_range = int(cfg["interact_range"])
     # scatter terrain resources (fresh random layout each load)
     place_resources(world, random.Random())
@@ -311,10 +120,12 @@ def main() -> None:
                       memory_k=cfg["memory_k"], memory_halflife_s=cfg["memory_halflife_s"])
         for npc in npcs
     }
-    trackers = {npc.id: PerceptionTracker(npc.id) for npc in npcs}
-    pending_obs = {e.id: [] for e in [player, *npcs]}
-    thinking = {npc.id: False for npc in npcs}
-    hear_log: list = []
+    engine = Engine(world, npcs, brains, journal,
+                    dispatch_think=lambda eid, snap, evs: think_q.put(("think", eid, snap, evs)))
+    engine.track(player)
+    npcs_by_id = engine.npcs_by_id
+
+    hear_log = engine.hear_log
     live_text: dict = {}          # eid -> say text streaming in right now (display only)
     live_lock = threading.Lock()
     worker = threading.Thread(target=think_worker, args=(brains, live_text, live_lock), daemon=True)
@@ -324,8 +135,6 @@ def main() -> None:
 
     input_buffer = ""
     composing = False
-    next_perceive_at = 0.0
-    sim_t = 0.0
     frame = 0
     inspect_npc_id: str | None = None
     last_fail = None
@@ -346,13 +155,19 @@ def main() -> None:
 
     while running:
         dt = clock.tick(60) / 1000.0
-        sim_t += dt
 
-        # survival needs drain in real time -> the pressure NPCs perceive and weigh
-        for npc in npcs:
-            tick_needs(npc, dt)
-        tick_resources(world, sim_t)   # regrow berries whose timer elapsed
-        reap_dead(npcs, npcs_by_id, world, journal, sim_t)   # 0 hp is death, no respawn
+        # deliver finished thinks first so their goals enact this same frame
+        while True:
+            try:
+                kind, eid, goals = result_q.get_nowait()
+            except queue.Empty:
+                break
+            engine.post_goals(eid, goals)
+            with live_lock:
+                live_text.pop(eid, None)  # a streamed say line broadcasts when its goal enacts
+
+        engine.step(dt)
+        sim_t = engine.sim_t
 
         while script and sim_t >= script[0][0]:
             _, etype, data = script.pop(0)
@@ -386,7 +201,7 @@ def main() -> None:
                     composing = False
                     input_buffer = ""
                     if text:
-                        broadcast(world, player, text, brains, pending_obs, sim_t, hear_log, journal)
+                        broadcast(world, player, text, brains, engine.pending_obs, sim_t, hear_log, journal)
             elif ev.type == pygame.KEYDOWN and ev.key == pygame.K_BACKSPACE:
                 if composing:
                     input_buffer = input_buffer[:-1]
@@ -413,54 +228,6 @@ def main() -> None:
                     last_fail = sig
                     journal.log("player", "action_failed", action="move", **result)
 
-        if sim_t >= next_perceive_at:
-            next_perceive_at = sim_t + PERCEPTION_INTERVAL
-            for npc in npcs:
-                if ENABLE_NPC_MEMORY:
-                    # geometry perception -> spatial memory (a remembered map), separate
-                    # from episodic memory so ~289 seen tiles never swamp recall. Then a
-                    # maintenance pass decays memorability and forgets faded tiles, keeping
-                    # geometry near current goal locations.
-                    brains[npc.id].perceive_tiles(visible_tiles(world, npc))
-                    brains[npc.id].maintain_spatial(npc.goals.locations())
-                events = trackers[npc.id].update(world, npc)
-                if events:
-                    journal.log(npc.id, "perception", events=events)
-                    if ENABLE_NPC_MEMORY:
-                        brains[npc.id].record_events(events, sim_t, location=[npc.x, npc.y])
-                    pending_obs[npc.id].extend(events)
-                    for ev_ in events:
-                        if ev_["kind"] in ("entity_entered", "entity_moved"):
-                            npc.target = ev_["id"]
-                        elif ev_["kind"] == "entity_left" and npc.target == ev_["id"]:
-                            npc.target = None
-
-        for npc in npcs:
-            if not ENABLE_NPC_THINKS or thinking[npc.id]:
-                continue
-            if not brains[npc.id].pending_think:   # think only when something novel happened
-                continue
-            brains[npc.id].pending_think = False
-            events = list(pending_obs[npc.id])
-            pending_obs[npc.id] = []
-            snapshot = build_snapshot(npc, world, events, sim_t)
-            thinking[npc.id] = True
-            journal.log(npc.id, "action_start", action="think")
-            think_q.put(("think", npc.id, snapshot, events))
-
-        while True:
-            try:
-                kind, eid, goals = result_q.get_nowait()
-            except queue.Empty:
-                break
-            thinking[eid] = False
-            if goals and eid in npcs_by_id:          # eid may have died while thinking
-                npcs_by_id[eid].goals.add_many(goals)  # merged + re-sorted by importance
-                journal.log(eid, "goals_added", goals=[g.summary() for g in goals],
-                            importances=[g.importance for g in goals])
-            with live_lock:
-                live_text.pop(eid, None)  # a streamed say line broadcasts when its goal enacts
-
         if autotest and outcome is None:
             listener = "npc_1" if args.autotest == "talk" else "npc_2"
             heard = [m for m in brains[listener].store.memories if m["sense"] == "heard"]
@@ -470,9 +237,6 @@ def main() -> None:
                 print(f"AUTOTEST {outcome}", flush=True)
                 journal.log("system", "autotest_result", result=outcome)
                 running = False
-
-        for npc in npcs:
-            advance_goals(world, npc, journal, sim_t, brains, pending_obs, hear_log)
 
         if autotest and outcome is None and sim_t > AUTOTEST_TIMEOUT_S:
             outcome = f"FAIL - timeout ({args.autotest})"
@@ -534,6 +298,8 @@ def main() -> None:
         bar = font.render(" | ".join(statuses), True, COLOR_TEXT)
         screen.blit(bar, (10, HEIGHT * TILE_SIZE - 22))
 
+        if inspect_npc_id is not None and inspect_npc_id not in npcs_by_id:
+            inspect_npc_id = None          # the inspected NPC died: close its panel
         if inspect_npc_id is not None and inspect_npc_id in brains:
             store = brains[inspect_npc_id].store
             mems = sorted(list(store.memories), key=lambda m: m["t"], reverse=True)[:20]

@@ -13,7 +13,9 @@ from sim.memory import MemoryStore, tokenize
 from sim.pathing import next_step
 from sim.perception import PerceptionTracker, visible_tiles
 from sim.spatial import SpatialMemory
-from sim.needs import tick_needs, sensations, HUNGER_DRAIN_PER_S, THIRST_DRAIN_PER_S, HEALTH_REGEN_PER_S
+from sim.engine import Engine, death_cause
+from sim.needs import tick_needs, HUNGER_DRAIN_PER_S, THIRST_DRAIN_PER_S, HEALTH_REGEN_PER_S
+from sim.reward import curiosity_reward, note_novelty, reward, survival_reward
 from sim.provider import OllamaProvider, _text_value_so_far
 from sim.world import has_los
 
@@ -136,19 +138,14 @@ def test_spatial_memory():
     assert "@" in m and "#" in m and "y=  9" in m, m
     assert SpatialMemory("x").render_local((0, 0), 3) is None, "nothing remembered -> no map"
 
-    # memorability: seeing reinforces (up to the cap), and forgetting infra prunes
-    from sim.spatial import SIGHT_BOOST, MEMORABILITY_CAP, FORGET_THRESHOLD, DECAY
+    # memorability: seeing a tile reinforces it, up to the cap
+    from sim.spatial import SIGHT_BOOST, MEMORABILITY_CAP
     f = SpatialMemory("f", max_tiles=None)
     f.observe((0, 0), "floor")
     assert f.memorability((0, 0)) == SIGHT_BOOST
     for _ in range(20):
         f.observe((0, 0), "floor")
     assert f.memorability((0, 0)) == MEMORABILITY_CAP, "reinforcement caps out"
-    assert f.forget((0, 0)) is True and f.forget((0, 0)) is False
-    f.observe_many([((1, 1), "wall"), ((9, 9), "floor")])
-    assert f.forget_beyond((1, 1), radius=2) == 1 and f.known((1, 1)), "generic primitive still works"
-    f.clear()
-    assert len(f) == 0
 
     # decay + threshold: an un-refreshed tile fades and is forgotten; a nearby goal
     # floors memorability by proximity so goal-relevant geometry survives
@@ -271,14 +268,184 @@ def test_needs():
     tick_needs(e, dt=10.0)
     assert e.hp == 40.0, "one need mid-range: health neither drains nor regens"
 
-    # sensations: comfortable -> nothing felt; low/critical -> felt, worst first
-    ok = Entity("x", "x", "npc", 0, 0)
-    assert sensations(ok) == [], "all needs full -> nothing felt"
-    ok.hunger, ok.thirst = 35.0, 8.0                 # thirst critical, hunger mild
-    felt = sensations(ok)
-    assert felt == ["parched", "hungry"], felt        # worst (lowest) first
-    ok.hp = 5                                        # now health is the worst of the three
-    assert sensations(ok)[0] == "badly wounded", sensations(ok)
+
+def test_reward():
+    from sim.world import World
+    world = World(4, 4)
+
+    # topped-off survivalist: reward ~ 1 * survival signal
+    e = Entity("a", "a", "npc", 1, 1)
+    e.drives = {"survival": 1.0, "curiosity": 0.0}
+    assert survival_reward(e, world) == 1.0 and reward(e, world) == 1.0
+
+    # only as safe as the worst meter; starving ~ 0; dead = 0
+    e.thirst = 30.0
+    assert survival_reward(e, world) == 0.3
+    e.hunger = 0.0
+    assert survival_reward(e, world) == 0.0, "an empty meter zeroes the signal"
+    e.hunger, e.hp = 100.0, 0.0
+    assert survival_reward(e, world) == 0.0, "death ends reward accrual"
+
+    # curiosity pays out when a type newly becomes familiar, once
+    c = Entity("c", "c", "npc", 1, 1)
+    c.drives = {"survival": 0.0, "curiosity": 0.5}
+    brain = Brain("c", object())
+    seen = {}
+    assert note_novelty(c, brain, seen) == 0 and reward(c, world) == 0.0
+    brain.record_events([{"kind": "did_interact", "target": "bush_1", "target_type": "berry_bush",
+                          "target_pos": [2, 1], "outcome": "ok", "effect": "picked a berry"}],
+                        now_t=1.0, location=[1, 1])
+    assert note_novelty(c, brain, seen) == 1 and curiosity_reward(c, world) == 1.0
+    assert reward(c, world) == 0.5, "novelty weighted by the curiosity drive"
+    assert note_novelty(c, brain, seen) == 0, "a discovery pays only once"
+
+    # a survival-only profile's reward ignores novelty entirely
+    c.drives = {"survival": 1.0, "curiosity": 0.0}
+    c.novelty_gained = 3
+    assert reward(c, world) == survival_reward(c, world)
+
+
+def test_engine_headless():
+    from sim.world import World
+    world = World(8, 8)
+    npc = Entity("npc_1", "npc_1", "npc", 1, 1)
+    npc.thirst = 40.0
+    water = Entity("water_1", "water_1", "water", 2, 1)
+    water.resource = {"kind": "restore", "stat": "thirst", "amount": 100}
+    for e in (npc, water):
+        world.entities[e.id] = e
+
+    # synchronous think: perceiving the (novel) water triggers a decide inline,
+    # and the returned plan executes through the same advance_goals as the game
+    prov = FakeProvider([
+        {"goals": [{"actions": [{"action": "interact", "params": {"target": "water_1"}}],
+                    "importance": 8, "reason": "drink"}]},
+    ])
+    path = os.path.join(tempfile.mkdtemp(), "engine.jsonl")
+    j = Journal(path, "engine")
+    engine = Engine(world, [npc], {"npc_1": Brain("npc_1", prov)}, j)
+    engine.step(0.3)
+    assert prov.calls, "novel perception must trigger a synchronous think"
+    assert npc.thirst > 95.0, f"the planned drink executed (thirst={npc.thirst})"
+    fam = engine.brains["npc_1"]._familiar_types()
+    assert "water" in fam, "the outcome memory makes water familiar"
+    # and the reward pipeline sees the discovery
+    assert note_novelty(npc, engine.brains["npc_1"], {}) == 1
+
+    # death mid-run: the engine reaps, the survivor keeps stepping
+    doomed = Entity("npc_2", "npc_2", "npc", 5, 5)
+    doomed.hp, doomed.hunger = 0.5, 0.0
+    world.entities[doomed.id] = doomed
+    engine.npcs.append(doomed)
+    engine.npcs_by_id[doomed.id] = doomed
+    engine.trackers[doomed.id] = PerceptionTracker(doomed.id)
+    engine.pending_obs[doomed.id] = []
+    engine.thinking[doomed.id] = False
+    died = engine.step(1.0)
+    assert [d.id for d in died] == ["npc_2"] and death_cause(doomed) == "starvation"
+    assert "npc_2" not in world.entities and engine.npcs == [npc]
+
+    # idle cadence: internal pressure is never a perception event, so with nothing
+    # novel left the agent still rethinks once think_interval elapses
+    ncalls = len(prov.calls)
+    engine.step(2.5)                     # sim_t 3.8 > next_think_at
+    assert len(prov.calls) > ncalls, "the idle think cadence must fire"
+    j.close()
+    rec = [json.loads(l) for l in open(path, encoding="utf-8")]
+    types = {r["type"] for r in rec}
+    assert {"goals_added", "resource_use", "death"} <= types, types
+
+
+def test_episode_runner():
+    import random as _random
+    from train.run_episodes import profile_key, run_episode, sample_drives, summarize
+    from train.extract_dataset import load_keep_set
+
+    rng = _random.Random(7)
+    for _ in range(20):
+        d = sample_drives(rng)
+        assert d["survival"] in (0.5, 1.0) and d["curiosity"] in (0.0, 0.5, 1.0), d
+    assert profile_key({"survival": 1.0, "curiosity": 0.5}) == "curiosity=0.5,survival=1"
+
+    # a micro-episode end to end: engine + reward accrual + score rows.
+    # the exhausted FakeProvider makes every think fail closed -> empty agendas,
+    # so NPCs idle and accrue near-full survival reward for the whole budget.
+    cfg = {"interact_range": 4, "memory_k": 5, "memory_halflife_s": 300.0}
+    tmp = tempfile.mkdtemp()
+    rows = run_episode("ep_smoke", os.path.join(tmp, "ep_smoke.jsonl"),
+                       FakeProvider([]), cfg, _random.Random(3), n_npcs=2, budget=4.0, dt=0.5)
+    assert len(rows) == 2
+    for r in rows:
+        assert r["cause"] == "alive" and r["survival_s"] == 4.0, r
+        # return ~= survival_weight * min-meter(≈1) * budget
+        assert abs(r["return"] - r["drives"]["survival"] * 4.0) < 0.2, r
+    summarize(rows)
+
+    # reward filtering keeps the top quantile PER PROFILE, not globally
+    scores = os.path.join(tmp, "scores.jsonl")
+    with open(scores, "w", encoding="utf-8") as f:
+        for i, (prof, ret) in enumerate([("s=1", 9.0), ("s=1", 1.0),
+                                         ("c=1", 0.4), ("c=1", 0.1)]):
+            f.write(json.dumps({"file": f"ep_{i}.jsonl", "npc": f"npc_{i}",
+                                "profile": prof, "return": ret}) + "\n")
+    keep = load_keep_set(scores, top=0.5)
+    assert keep == {("ep_0.jsonl", "npc_0"), ("ep_2.jsonl", "npc_2")}, \
+        "low-return explorers must not lose to high-return survivalists' raw numbers"
+
+
+def test_felt_memories():
+    # event -> structured 'felt' memory (did = external act, felt = internal state)
+    mems = memories_from_event({"kind": "felt_stat", "stat": "thirst", "value": 82,
+                                "direction": "falling"}, [5, 5], 10.0, "npc_1")
+    assert len(mems) == 1 and mems[0]["sense"] == "felt"
+    s = mems[0]["subject"]
+    assert s["kind"] == "stat" and s["ref"] == "thirst" and s["type"] == "falling"
+    assert s["info"] == {"stat": "thirst", "value": 82}
+
+    def stat_subject(name, val, direction):
+        return {"kind": "stat", "ref": name, "type": direction, "pos": None,
+                "info": {"stat": name, "value": val}}
+
+    # a ticking stat folds into ONE spanning run (only info differs each step)
+    st = MemoryStore("n", consolidator=Consolidator())
+    run, _ = st.record("felt", stat_subject("hunger", 99, "falling"), [1, 1], 2.0)
+    for val, t in ((98, 4.0), (97, 6.0), (96, 8.0)):     # 2s cadence = the real drain rate
+        _, merged = st.record("felt", stat_subject("hunger", val, "falling"), [1, 1], t)
+        assert merged is True, f"tick at t={t} must fold into the run"
+    assert len(st) == 1 and run["count"] == 4
+    assert run["origin"]["info"]["value"] == 99 and run["subject"]["info"]["value"] == 96
+    assert render_memory(run) == "I felt my hunger fell from 99 to 96", render_memory(run)
+
+    # another stat at the SAME value must not fold in (ref + info differ)
+    _, merged = st.record("felt", stat_subject("thirst", 96, "falling"), [1, 1], 8.5)
+    assert merged is False and len(st) == 2
+
+    # a direction reversal starts a new record (type + info differ)
+    _, merged = st.record("felt", stat_subject("hunger", 97, "rising"), [1, 1], 9.0)
+    assert merged is False and len(st) == 3
+
+    # recall can filter on the new sense, and felt runs are retrievable
+    rec = validate_intent({"action": "recall", "params": {"query": "hunger", "sense": "felt"}})
+    assert rec["params"]["sense"] == "felt"
+    got = st.retrieve(tokenize("thirst"), now_t=9.5, query_sense="felt", k=1)
+    assert got and got[0]["subject"]["ref"] == "thirst"
+
+    # the engine wires interoception through the same pipeline: draining needs
+    # produce merged felt runs, not a flood of records
+    from sim.world import World
+    world = World(6, 6)
+    npc = Entity("npc_1", "npc_1", "npc", 1, 1)
+    world.entities[npc.id] = npc
+    j = Journal(os.path.join(tempfile.mkdtemp(), "felt.jsonl"), "felt")
+    eng = Engine(world, [npc], {"npc_1": Brain("npc_1", FakeProvider([]))}, j)
+    for _ in range(16):
+        eng.step(0.5)                    # 8 sim-seconds of hunger/thirst drain
+    j.close()
+    felt = [m for m in eng.brains["npc_1"].store.memories if m["sense"] == "felt"]
+    by_stat = {m["subject"]["ref"] for m in felt}
+    assert by_stat == {"hunger", "thirst"}, by_stat   # health held full -> nothing felt
+    assert all(m["count"] > 1 for m in felt), "ticking stats must consolidate into runs"
+    assert all(m["subject"]["type"] == "falling" for m in felt)
 
 
 def test_curiosity():
@@ -737,6 +904,10 @@ def main() -> None:
     test_terrain_resources()
     test_needs()
     test_death()
+    test_reward()
+    test_engine_headless()
+    test_episode_runner()
+    test_felt_memories()
     test_curiosity()
     test_brain_validation()
     test_goal_infrastructure()

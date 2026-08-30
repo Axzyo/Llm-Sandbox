@@ -100,25 +100,12 @@ class SpatialMemory:
         forgotten = self.forget_where(lambda _c, cell: cell["memorability"] <= FORGET_THRESHOLD)
         return forgotten + self._evict_to_cap()
 
-    def forget(self, coord) -> bool:
-        """Forget one remembered tile. Returns True if it was known."""
-        return self.tiles.pop(coord, None) is not None
-
     def forget_where(self, predicate) -> int:
         """Forget every tile for which predicate(coord, cell) is True. Returns count."""
         doomed = [c for c, cell in self.tiles.items() if predicate(c, cell)]
         for c in doomed:
             del self.tiles[c]
         return len(doomed)
-
-    def forget_beyond(self, center, radius: int) -> int:
-        """Forget tiles farther than `radius` (chebyshev) from center. A generic
-        primitive (not the active policy) — memorability drives forgetting now."""
-        cx, cy = center
-        return self.forget_where(lambda c, _cell: max(abs(c[0] - cx), abs(c[1] - cy)) > radius)
-
-    def clear(self) -> None:
-        self.tiles.clear()
 
     def _evict_to_cap(self) -> int:
         """If a max_tiles cap is set and exceeded, drop the least-memorable tiles
