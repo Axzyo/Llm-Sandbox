@@ -26,7 +26,7 @@ def visible_tiles(world, viewer) -> list:
     """Tiles within vision + line of sight of the viewer, as ((x, y), type) where
     type is 'wall' or 'floor'. Feeds the spatial-memory layer (a remembered map),
     not episodic memory."""
-    r = viewer.vision_radius
+    r = viewer.properties["vision_radius"]
     out = []
     for y in range(viewer.y - r, viewer.y + r + 1):
         for x in range(viewer.x - r, viewer.x + r + 1):
@@ -46,7 +46,7 @@ def visible_entities(world, viewer) -> list:
         if e.id == viewer.id:
             continue
         if (
-            chebyshev(viewer.x, viewer.y, e.x, e.y) <= viewer.vision_radius
+            chebyshev(viewer.x, viewer.y, e.x, e.y) <= viewer.properties["vision_radius"]
             and has_los(world, viewer.x, viewer.y, e.x, e.y)
         ):
             out.append(e)
@@ -64,7 +64,7 @@ class PerceptionTracker:
             if e.id == viewer.id:
                 continue
             if (
-                chebyshev(viewer.x, viewer.y, e.x, e.y) <= viewer.vision_radius
+                chebyshev(viewer.x, viewer.y, e.x, e.y) <= viewer.properties["vision_radius"]
                 and has_los(world, viewer.x, viewer.y, e.x, e.y)
             ):
                 seen[e.id] = (e.x, e.y)

@@ -70,9 +70,14 @@ Drives are a weighted set of internal needs. Personality = a **weight profile** 
 
 ```
 drives: { survival: 1.0, curiosity: 0.0 }   // start: survival-only
-// later e.g. { survival: 0.5, curiosity: 0.9 }  -> knowledge-valuing NPC
-// later e.g. { survival: 0.3, power: 0.8 }      -> risk-taking NPC
+// later e.g. { survival: 0.5, curiosity: 0.5 }  -> knowledge-valuing NPC
+// later e.g. { survival: 0.3, power: 0.7 }      -> risk-taking NPC
 ```
+
+**Weights are shares of one whole and must sum to 1** (`sim/reward.py::validate_drives`).
+The same weights scale reward during training, so unequal totals would pay some
+NPCs more for identical behavior; normalizing makes returns comparable across
+profiles. Personality is how the budget is split, not how big it is.
 
 Mechanism: each drive has a mechanical state (HP/hunger for survival, novelty-deficit for curiosity). Drive state is reported to the agent as **internal sensation** in its prompt ("you feel hungry", "your surroundings feel stale"). The LLM weighs sensations against memories and decides. An NPC valuing power over safety is just a different weighting of the same machinery — no new code.
 

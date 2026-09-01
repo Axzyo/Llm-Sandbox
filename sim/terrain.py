@@ -97,9 +97,9 @@ def tick_resources(world, now: float) -> None:
 
 def _raise_stat(actor, stat: str, amount: float) -> float:
     """Raise one of the actor's stats toward 100; returns how much it actually rose."""
-    before = getattr(actor, stat)
-    setattr(actor, stat, min(100.0, before + amount))
-    return round(getattr(actor, stat) - before, 1)
+    before = actor.stats[stat]
+    actor.stats[stat] = min(100.0, before + amount)
+    return round(actor.stats[stat] - before, 1)
 
 
 def interact_with(entity, actor, now: float, rng=None) -> dict | None:

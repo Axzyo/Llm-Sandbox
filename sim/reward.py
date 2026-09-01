@@ -8,19 +8,32 @@ the same profile that conditions the policy's decisions also scores them:
 
     reward = sum_d drives[d] * signal_d
 
+Drive weights are SHARES OF ONE WHOLE: they must sum to 1. The same weights
+scale reward, so unequal totals would pay some NPCs more for identical
+behavior and make returns incomparable across profiles. validate_drives
+rejects a bad profile — it never renormalizes.
+
 Constants are minimal placeholders, like sim/needs.py's rates.
 """
 
 DISCOUNT_PER_S = 1.0   # per-second return discount; 1.0 = undiscounted (episodes are bounded)
 
 
+def validate_drives(drives: dict) -> None:
+    """Reject a drive profile whose weights don't sum to 1 (no silent coercion)."""
+    total = sum(drives.values())
+    if abs(total - 1.0) > 1e-6:
+        raise ValueError(f"drive weights must sum to 1, got {total:g}: {drives}")
+
+
 def survival_reward(npc, world) -> float:
-    """You are only as safe as your worst meter: min(hp, hunger, thirst)/100
+    """You are only as safe as your worst meter: min(health, hunger, thirst)/100
     while alive, 0 once dead. Accrued over time, so living longer while
     topped-off is worth more than scraping by — and death ends accrual."""
-    if npc.hp <= 0.0:
+    s = npc.stats
+    if s["health"] <= 0.0:
         return 0.0
-    return min(npc.hp, npc.hunger, npc.thirst) / 100.0
+    return min(s["health"], s["hunger"], s["thirst"]) / 100.0
 
 
 def curiosity_reward(npc, world) -> float:

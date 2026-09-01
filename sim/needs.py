@@ -23,9 +23,10 @@ def tick_needs(entity, dt: float) -> None:
     (clamped at 0). Then health responds: it drops while either need is empty, and
     regenerates while both are above REGEN_THRESHOLD; otherwise it holds. Health is
     clamped to [0, 100]."""
-    entity.hunger = max(0.0, entity.hunger - HUNGER_DRAIN_PER_S * dt)
-    entity.thirst = max(0.0, entity.thirst - THIRST_DRAIN_PER_S * dt)
-    if entity.hunger <= 0.0 or entity.thirst <= 0.0:
-        entity.hp = max(0.0, entity.hp - STARVE_DAMAGE_PER_S * dt)
-    elif entity.hunger > REGEN_THRESHOLD and entity.thirst > REGEN_THRESHOLD:
-        entity.hp = min(100.0, entity.hp + HEALTH_REGEN_PER_S * dt)
+    s = entity.stats
+    s["hunger"] = max(0.0, s["hunger"] - HUNGER_DRAIN_PER_S * dt)
+    s["thirst"] = max(0.0, s["thirst"] - THIRST_DRAIN_PER_S * dt)
+    if s["hunger"] <= 0.0 or s["thirst"] <= 0.0:
+        s["health"] = max(0.0, s["health"] - STARVE_DAMAGE_PER_S * dt)
+    elif s["hunger"] > REGEN_THRESHOLD and s["thirst"] > REGEN_THRESHOLD:
+        s["health"] = min(100.0, s["health"] + HEALTH_REGEN_PER_S * dt)

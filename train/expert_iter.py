@@ -14,8 +14,10 @@ Usage:
 """
 import argparse
 import collections
+import glob
 import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -40,6 +42,9 @@ def serve_ollama(adapter: str, merged: str, base: str, model_name: str) -> str:
     cmd = ["ollama", "create", model_name, "--quantize", "q4_K_M", "-f", modelfile]
     print(f"\n>>> {' '.join(cmd)}", flush=True)
     subprocess.run(cmd, cwd=ROOT, check=True)
+    # the merged fp16 dir is ~6GB and fully reproducible (base + adapter); Ollama
+    # holds its own quantized copy, so an endless loop must not leak it per round
+    shutil.rmtree(merged, ignore_errors=True)
     return model_name
 
 
@@ -61,7 +66,11 @@ def round_aggregates(scores_path: str) -> dict:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--rounds", type=int, default=3)
+    ap.add_argument("--rounds", type=int, default=3,
+                    help="0 = run indefinitely; create train/rounds/STOP to end after the current round")
+    ap.add_argument("--max-keep", type=int, default=12,
+                    help="cap on NPCs kept per profile bucket when filtering the elite pool "
+                         "(bounds per-round training time as the pool grows)")
     ap.add_argument("--episodes", type=int, default=8)
     ap.add_argument("--npcs", type=int, default=3)
     ap.add_argument("--budget", type=float, default=240.0)
@@ -73,6 +82,8 @@ def main():
     ap.add_argument("--init-model", default=None,
                     help="Ollama model to roll out the FIRST round with (e.g. student-r1); "
                          "default gemma4 baseline when starting fresh")
+    ap.add_argument("--temperature", type=float, default=None,
+                    help="rollout sampling temperature (default: config.json's)")
     args = ap.parse_args()
 
     rounds_dir = os.path.join(ROOT, "train", "rounds")
@@ -80,7 +91,15 @@ def main():
     summary_path = os.path.join(rounds_dir, "summary.jsonl")
 
     prev_model = args.init_model            # Ollama model of the last round's student
-    for r in range(args.start_round, args.start_round + args.rounds):
+    r = args.start_round
+    while True:
+        # graceful stop for endless mode: touching train/rounds/STOP ends the loop
+        # cleanly between rounds (never mid-training)
+        stop_file = os.path.join(rounds_dir, "STOP")
+        if os.path.exists(stop_file):
+            os.remove(stop_file)
+            print(f"STOP file found -> stopping before round {r}")
+            break
         round_dir = os.path.join(rounds_dir, f"round_{r}")
         ep_dir = os.path.join(round_dir, "episodes")
         scores = os.path.join(ep_dir, "scores.jsonl")
@@ -95,6 +114,8 @@ def main():
                    "--out-dir", ep_dir, "--tag", f"round{r}"]
         if prev_model is not None:
             rollout += ["--model", prev_model]     # ollama provider (default) serves the student
+        if args.temperature is not None:
+            rollout += ["--temperature", str(args.temperature)]
         run(*rollout)
 
         agg = round_aggregates(scores)
@@ -102,15 +123,30 @@ def main():
             f.write(json.dumps({"round": r, "policy": prev_model or "gemma4 (baseline)", **agg}) + "\n")
         print(f"round {r} rollout: {agg}")
 
-        # 2. filter to high-return trajectories, per drive profile
-        run("extract_dataset.py", "--runs", ep_dir, "--scores", scores,
-            "--out", sft, "--top", str(args.top))
+        # 2. pool this round into the cross-round elite set, then filter over ALL
+        #    rounds so far — selection with memory. A rare good trajectory keeps
+        #    teaching every later round instead of being lost when its round ends;
+        #    the per-profile top quantile of the growing pool naturally favors the
+        #    best behavior regardless of which policy produced it.
+        elite_dir = os.path.join(rounds_dir, "elite")
+        os.makedirs(elite_dir, exist_ok=True)
+        for f in glob.glob(os.path.join(ep_dir, "ep_*.jsonl")):
+            shutil.copy2(f, elite_dir)
+        with open(scores, encoding="utf-8") as src, \
+                open(os.path.join(elite_dir, "scores.jsonl"), "a", encoding="utf-8") as dst:
+            dst.write(src.read())
+        run("extract_dataset.py", "--runs", elite_dir,
+            "--scores", os.path.join(elite_dir, "scores.jsonl"),
+            "--out", sft, "--top", str(args.top), "--max-keep", str(args.max_keep))
 
         # 3. imitate the winners, then 4. serve the student back through Ollama
         run("train_lora.py", "--data", sft, "--out", adapter, "--base", args.base)
         prev_model = serve_ollama(adapter, merged, args.base, f"student-r{r}")
+        r += 1
+        if args.rounds and r >= args.start_round + args.rounds:
+            break
 
-    print(f"\ndone: {args.rounds} rounds. Final policy served as Ollama model '{prev_model}'.\n"
+    print(f"\ndone: {r - args.start_round} rounds. Final policy served as Ollama model '{prev_model}'.\n"
           f"  python train/run_episodes.py --model {prev_model} --episodes {args.episodes} --npcs {args.npcs}\n"
           f"round-over-round numbers: {summary_path}")
 

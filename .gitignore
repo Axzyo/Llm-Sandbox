@@ -7,4 +7,6 @@ venv/
 # generated training artifacts (rollouts, adapters, merged models, datasets)
 runs/episodes/
 train/rounds/
+train/rounds_v*/
 train/data/
+train/*.log

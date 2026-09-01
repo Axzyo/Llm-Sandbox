@@ -102,7 +102,7 @@ def main() -> None:
     ]
     for e in [player, *npcs]:
         world.entities[e.id] = e
-        e.interact_range = int(cfg["interact_range"])
+        e.properties["interact_range"] = int(cfg["interact_range"])
     # scatter terrain resources (fresh random layout each load)
     place_resources(world, random.Random())
 
@@ -218,7 +218,7 @@ def main() -> None:
         if held and not composing and sim_t >= player.next_move_at:
             dx, dy = DIRS[held]
             result = attempt_move(world, player, dx, dy)
-            player.next_move_at = sim_t + player.move_interval
+            player.next_move_at = sim_t + player.properties["move_interval"]
             if result["ok"]:
                 last_fail = None
                 journal.log("player", "action_complete", action="move", **result)
@@ -278,7 +278,7 @@ def main() -> None:
             live_now = {eid: t for eid, t in live_text.items() if t}
         for eid, partial in live_now.items():   # an NPC mid-sentence, if the player can hear it
             spk = world.entities.get(eid)
-            if spk is not None and chebyshev(player.x, player.y, spk.x, spk.y) <= player.hearing_radius:
+            if spk is not None and chebyshev(player.x, player.y, spk.x, spk.y) <= player.properties["hearing_radius"]:
                 visible_hud.append(f"{eid}: {partial}█")
         if composing:
             visible_hud.append(f"> {input_buffer}_")

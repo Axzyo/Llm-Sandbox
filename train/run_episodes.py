@@ -30,19 +30,22 @@ from sim.engine import Engine, death_cause                               # noqa:
 from sim.entities import Entity                                          # noqa: E402
 from sim.journal import Journal                                          # noqa: E402
 from sim.provider import OllamaProvider                                  # noqa: E402
-from sim.reward import DISCOUNT_PER_S, note_novelty, reward              # noqa: E402
+from sim.reward import DISCOUNT_PER_S, note_novelty, reward, validate_drives  # noqa: E402
 from sim.terrain import _free_floor_tiles, build_test_map, place_resources  # noqa: E402
 
-# Drive-profile spread the ONE policy must generalize over. A small grid keeps
-# profiles bucketable for per-profile reward filtering; survival never drops to
-# 0 so dying is always penalized (an unweighted death would be free).
-SURVIVAL_WEIGHTS = (0.5, 1.0)
-CURIOSITY_WEIGHTS = (0.0, 0.5, 1.0)
+# Drive-profile spread the ONE policy must generalize over. Weights are shares
+# of one whole (they must sum to 1 — see sim/reward.py), so the sampler picks
+# survival's share and curiosity gets the rest. A small grid keeps profiles
+# bucketable for per-profile reward filtering. Even at survival=0 (the crazed
+# scholar who values only discovery) death is not free: reward accrues only
+# while alive, so staying alive remains instrumentally valuable — the agent
+# must live to keep learning.
+SURVIVAL_WEIGHTS = (0.0, 0.25, 0.5, 0.75, 1.0)
 
 
 def sample_drives(rng: random.Random) -> dict:
-    return {"survival": rng.choice(SURVIVAL_WEIGHTS),
-            "curiosity": rng.choice(CURIOSITY_WEIGHTS)}
+    survival = rng.choice(SURVIVAL_WEIGHTS)
+    return {"survival": survival, "curiosity": round(1.0 - survival, 2)}
 
 
 def profile_key(drives: dict) -> str:
@@ -51,15 +54,19 @@ def profile_key(drives: dict) -> str:
 
 
 def make_provider(args, cfg):
+    # rollout temperature: --temperature overrides config. Selection-based training
+    # mines behavioral variance for lucky successes, so rollouts often want to run
+    # hotter than the near-deterministic game default.
+    temp = cfg["temperature"] if args.temperature is None else args.temperature
     if args.provider == "transformers":
         from sim.provider import TransformersProvider
         return TransformersProvider(args.model or cfg["model"], adapter=args.adapter,
-                                    temperature=cfg["temperature"], num_predict=cfg["num_predict"])
+                                    temperature=temp, num_predict=cfg["num_predict"])
     if args.provider == "anthropic":
         from sim.provider import AnthropicProvider
         return AnthropicProvider(args.model or "claude-sonnet-5", num_predict=cfg["num_predict"])
     return OllamaProvider(cfg["ollama_url"], args.model or cfg["model"],
-                          cfg["temperature"], cfg["num_predict"],
+                          temp, cfg["num_predict"],
                           keep_alive=cfg.get("keep_alive", "30m"))
 
 
@@ -75,8 +82,9 @@ def run_episode(ep_id: str, path: str, provider, cfg: dict, rng: random.Random,
     for i in range(1, n_npcs + 1):
         x, y = tiles.pop()
         npc = Entity(f"npc_{i}", f"npc_{i}", "npc", x, y)
-        npc.interact_range = int(cfg["interact_range"])
+        npc.properties["interact_range"] = int(cfg["interact_range"])
         npc.drives = sample_drives(rng)
+        validate_drives(npc.drives)      # the fairness contract: weights are shares of 1
         npcs.append(npc)
         world.entities[npc.id] = npc
         brains[npc.id] = Brain(npc.id, provider, journal,
@@ -148,6 +156,7 @@ def main():
     ap.add_argument("--provider", choices=["ollama", "transformers", "anthropic"], default="ollama")
     ap.add_argument("--model", default=None, help="override model (ollama name, HF path, or claude-* id)")
     ap.add_argument("--adapter", default=None, help="LoRA adapter dir (transformers provider)")
+    ap.add_argument("--temperature", type=float, default=None, help="rollout sampling temperature (default: config.json)")
     ap.add_argument("--tag", default=None, help="filename tag; default = timestamp")
     ap.add_argument("--summarize", metavar="SCORES", help="re-print aggregates from a scores.jsonl and exit")
     args = ap.parse_args()

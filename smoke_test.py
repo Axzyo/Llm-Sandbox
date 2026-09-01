@@ -15,7 +15,7 @@ from sim.perception import PerceptionTracker, visible_tiles
 from sim.spatial import SpatialMemory
 from sim.engine import Engine, death_cause
 from sim.needs import tick_needs, HUNGER_DRAIN_PER_S, THIRST_DRAIN_PER_S, HEALTH_REGEN_PER_S
-from sim.reward import curiosity_reward, note_novelty, reward, survival_reward
+from sim.reward import curiosity_reward, note_novelty, reward, survival_reward, validate_drives
 from sim.provider import OllamaProvider, _text_value_so_far
 from sim.world import has_los
 
@@ -184,7 +184,7 @@ def test_death():
     world = World(6, 6)
     alive = Entity("npc_1", "npc_1", "npc", 1, 1)
     doomed = Entity("npc_2", "npc_2", "npc", 2, 2)
-    doomed.hp, doomed.thirst = 0.0, 0.0            # dehydrated to death
+    doomed.stats["health"], doomed.stats["thirst"] = 0.0, 0.0   # dehydrated to death
     for e in (alive, doomed):
         world.entities[e.id] = e
     npcs = [alive, doomed]
@@ -216,24 +216,24 @@ def test_terrain_resources():
     bush = next(e for e in placed if e.kind == "berry_bush")
 
     a = Entity("a", "a", "npc", 0, 0)
-    a.hunger, a.thirst = 20.0, 10.0
+    a.stats["hunger"], a.stats["thirst"] = 20.0, 10.0
 
     # drink water: thirst stat raised, water is not used up (infinite source, no item)
     out = interact_with(water, a, now=5.0)
     assert out == {"ok": True, "did": "drink", "stat": "thirst", "gained": 90.0}, out
-    assert a.thirst == 100.0 and a.inventory == []
+    assert a.stats["thirst"] == 100.0 and a.inventory == []
 
     # pick berries: a 'berry' item enters the inventory; the bush is now empty + regrowing
     out = interact_with(bush, a, now=5.0, rng=_random.Random(2))
     assert out == {"ok": True, "did": "harvest", "yields": "berry"}, out
-    assert a.inventory == ["berry"] and a.hunger == 20.0, "picking doesn't feed you — eating does"
+    assert a.inventory == ["berry"] and a.stats["hunger"] == 20.0, "picking doesn't feed you — eating does"
     assert bush.resource["available"] is False and bush.resource["regrow_at"] is not None
     assert interact_with(bush, a, now=6.0) == {"ok": False, "did": "harvest", "reason": "empty"}
 
     # eat the berry (inventory use): hunger rises, the berry is consumed
     out = use_item(a, "berry")
     assert out == {"ok": True, "did": "use", "item": "berry", "stat": "hunger", "gained": float(BERRY_AMOUNT)}, out
-    assert a.hunger == 20.0 + BERRY_AMOUNT and a.inventory == []
+    assert a.stats["hunger"] == 20.0 + BERRY_AMOUNT and a.inventory == []
     assert use_item(a, "berry") is None, "no berry left to eat"
 
     # the bush regrows a berry after its timer
@@ -245,28 +245,29 @@ def test_terrain_resources():
 
 def test_needs():
     e = Entity("npc_1", "npc_1", "npc", 5, 5)
-    assert e.hp == 100 and e.hunger == 100.0 and e.thirst == 100.0, "start full"
+    s = e.stats
+    assert s["health"] == 100 and s["hunger"] == 100.0 and s["thirst"] == 100.0, "start full"
 
     tick_needs(e, dt=10.0)                          # 10 seconds pass
-    assert e.hunger == 100.0 - HUNGER_DRAIN_PER_S * 10, e.hunger
-    assert e.thirst == 100.0 - THIRST_DRAIN_PER_S * 10, e.thirst
-    assert e.hp == 100.0, "well-fed + hydrated: health regenerates but caps at full"
+    assert s["hunger"] == 100.0 - HUNGER_DRAIN_PER_S * 10, s["hunger"]
+    assert s["thirst"] == 100.0 - THIRST_DRAIN_PER_S * 10, s["thirst"]
+    assert s["health"] == 100.0, "well-fed + hydrated: health regenerates but caps at full"
 
     # health regenerates while both needs are above threshold
-    e.hp, e.hunger, e.thirst = 50.0, 90.0, 90.0
+    s["health"], s["hunger"], s["thirst"] = 50.0, 90.0, 90.0
     tick_needs(e, dt=10.0)
-    assert e.hp == 50.0 + HEALTH_REGEN_PER_S * 10, e.hp
+    assert s["health"] == 50.0 + HEALTH_REGEN_PER_S * 10, s["health"]
 
     # a need at 0 starves health down; needs never go below empty
-    e.hunger = 1.0
+    s["hunger"] = 1.0
     tick_needs(e, dt=100.0)                          # hunger clamps at 0, then health drains
-    assert e.hunger == 0.0, "needs never go below empty"
-    assert e.hp < 60.0, "empty hunger drains health"
+    assert s["hunger"] == 0.0, "needs never go below empty"
+    assert s["health"] < 60.0, "empty hunger drains health"
 
     # in-between (a need below threshold but not empty) holds health steady
-    e.hp, e.hunger, e.thirst = 40.0, 50.0, 90.0
+    s["health"], s["hunger"], s["thirst"] = 40.0, 50.0, 90.0
     tick_needs(e, dt=10.0)
-    assert e.hp == 40.0, "one need mid-range: health neither drains nor regens"
+    assert s["health"] == 40.0, "one need mid-range: health neither drains nor regens"
 
 
 def test_reward():
@@ -279,25 +280,33 @@ def test_reward():
     assert survival_reward(e, world) == 1.0 and reward(e, world) == 1.0
 
     # only as safe as the worst meter; starving ~ 0; dead = 0
-    e.thirst = 30.0
+    e.stats["thirst"] = 30.0
     assert survival_reward(e, world) == 0.3
-    e.hunger = 0.0
+    e.stats["hunger"] = 0.0
     assert survival_reward(e, world) == 0.0, "an empty meter zeroes the signal"
-    e.hunger, e.hp = 100.0, 0.0
+    e.stats["hunger"], e.stats["health"] = 100.0, 0.0
     assert survival_reward(e, world) == 0.0, "death ends reward accrual"
 
     # curiosity pays out when a type newly becomes familiar, once
     c = Entity("c", "c", "npc", 1, 1)
-    c.drives = {"survival": 0.0, "curiosity": 0.5}
+    c.drives = {"survival": 0.5, "curiosity": 0.5}
     brain = Brain("c", object())
     seen = {}
-    assert note_novelty(c, brain, seen) == 0 and reward(c, world) == 0.0
+    assert note_novelty(c, brain, seen) == 0 and reward(c, world) == 0.5   # survival share only
     brain.record_events([{"kind": "did_interact", "target": "bush_1", "target_type": "berry_bush",
                           "target_pos": [2, 1], "outcome": "ok", "effect": "picked a berry"}],
                         now_t=1.0, location=[1, 1])
     assert note_novelty(c, brain, seen) == 1 and curiosity_reward(c, world) == 1.0
-    assert reward(c, world) == 0.5, "novelty weighted by the curiosity drive"
+    assert reward(c, world) == 1.0, "novelty weighted by the curiosity share"
     assert note_novelty(c, brain, seen) == 0, "a discovery pays only once"
+
+    # drive weights are shares of one whole: sum != 1 is rejected, never renormalized
+    validate_drives({"survival": 0.75, "curiosity": 0.25})
+    try:
+        validate_drives({"survival": 1.0, "curiosity": 0.5})
+        assert False, "sum 1.5 must be rejected"
+    except ValueError:
+        pass
 
     # a survival-only profile's reward ignores novelty entirely
     c.drives = {"survival": 1.0, "curiosity": 0.0}
@@ -309,7 +318,7 @@ def test_engine_headless():
     from sim.world import World
     world = World(8, 8)
     npc = Entity("npc_1", "npc_1", "npc", 1, 1)
-    npc.thirst = 40.0
+    npc.stats["thirst"] = 40.0
     water = Entity("water_1", "water_1", "water", 2, 1)
     water.resource = {"kind": "restore", "stat": "thirst", "amount": 100}
     for e in (npc, water):
@@ -326,7 +335,7 @@ def test_engine_headless():
     engine = Engine(world, [npc], {"npc_1": Brain("npc_1", prov)}, j)
     engine.step(0.3)
     assert prov.calls, "novel perception must trigger a synchronous think"
-    assert npc.thirst > 95.0, f"the planned drink executed (thirst={npc.thirst})"
+    assert npc.stats["thirst"] > 95.0, f"the planned drink executed (thirst={npc.stats['thirst']})"
     fam = engine.brains["npc_1"]._familiar_types()
     assert "water" in fam, "the outcome memory makes water familiar"
     # and the reward pipeline sees the discovery
@@ -334,7 +343,7 @@ def test_engine_headless():
 
     # death mid-run: the engine reaps, the survivor keeps stepping
     doomed = Entity("npc_2", "npc_2", "npc", 5, 5)
-    doomed.hp, doomed.hunger = 0.5, 0.0
+    doomed.stats["health"], doomed.stats["hunger"] = 0.5, 0.0
     world.entities[doomed.id] = doomed
     engine.npcs.append(doomed)
     engine.npcs_by_id[doomed.id] = doomed
@@ -364,8 +373,9 @@ def test_episode_runner():
     rng = _random.Random(7)
     for _ in range(20):
         d = sample_drives(rng)
-        assert d["survival"] in (0.5, 1.0) and d["curiosity"] in (0.0, 0.5, 1.0), d
-    assert profile_key({"survival": 1.0, "curiosity": 0.5}) == "curiosity=0.5,survival=1"
+        assert d["survival"] in (0.0, 0.25, 0.5, 0.75, 1.0), d
+        assert abs(sum(d.values()) - 1.0) < 1e-9, f"drives must sum to 1: {d}"
+    assert profile_key({"survival": 0.75, "curiosity": 0.25}) == "curiosity=0.25,survival=0.75"
 
     # a micro-episode end to end: engine + reward accrual + score rows.
     # the exhausted FakeProvider makes every think fail closed -> empty agendas,
@@ -391,6 +401,10 @@ def test_episode_runner():
     keep = load_keep_set(scores, top=0.5)
     assert keep == {("ep_0.jsonl", "npc_0"), ("ep_2.jsonl", "npc_2")}, \
         "low-return explorers must not lose to high-return survivalists' raw numbers"
+    # max_keep caps each bucket independently (bounds an ever-growing elite pool)
+    keep = load_keep_set(scores, top=1.0, max_keep=1)
+    assert keep == {("ep_0.jsonl", "npc_0"), ("ep_2.jsonl", "npc_2")}, \
+        "cap keeps each bucket's best, never evicting one profile for another"
 
 
 def test_felt_memories():
@@ -452,7 +466,7 @@ def test_curiosity():
     b = Brain("npc_1", object())
     snap = {"t": 1.0, "self_id": "npc_1", "self_pos": [5, 5],
             "visible_entities": [{"id": "bush_1", "type": "berry_bush", "pos": [6, 5]}],
-            "drives": {"survival": 1.0, "curiosity": 0.5}, "recent_perceptions": []}
+            "drives": {"survival": 0.75, "curiosity": 0.25}, "recent_perceptions": []}
     # familiarity is a plain fact on each visible thing, derived from memory
     ann = b._annotate_familiarity(snap)
     assert ann["visible_entities"][0]["familiar"] is False, "never interacted -> unfamiliar"

@@ -29,7 +29,7 @@ def evaluate_interact(world: World, actor, target_id: str | None = None) -> dict
     else:
         target = min(others, key=lambda e: chebyshev(actor.x, actor.y, e.x, e.y))
     d = chebyshev(actor.x, actor.y, target.x, target.y)
-    range_ok = d <= actor.interact_range
+    range_ok = d <= actor.properties["interact_range"]
     los_ok = has_los(world, actor.x, actor.y, target.x, target.y)
     return {
         "ok": range_ok and los_ok,

@@ -21,25 +21,18 @@ PERCEPTION_INTERVAL = 0.2
 ENABLE_NPC_MEMORY = True
 ENABLE_NPC_THINKS = True
 
-# Interoception: entity stats whose changes the owner FEELS (a `felt` memory,
-# the internal counterpart of `did`). Felt event name -> Entity attribute; names
-# match the snapshot vocabulary the agent already reads. New internal state
-# (level, stamina, ...) is one entry here.
-FELT_STATS = {"health": "hp", "hunger": "hunger", "thirst": "thirst"}
-
-
 def build_snapshot(npc, world, pending_events: list, now_t: float) -> dict:
     return {
         "t": round(now_t, 2),
         "self_id": npc.id,
         "self_pos": [npc.x, npc.y],
-        "health": round(npc.hp),                # three survival needs, 0 (empty) .. 100 (full)
-        "hunger": round(npc.hunger),
-        "thirst": round(npc.thirst),
+        "health": round(npc.stats["health"]),    # three survival needs, 0 (empty) .. 100 (full)
+        "hunger": round(npc.stats["hunger"]),
+        "thirst": round(npc.stats["thirst"]),
         "drives": npc.drives,                    # personality weights (survival, curiosity, ...)
-        "vision_radius": npc.vision_radius,
-        "hearing_radius": npc.hearing_radius,
-        "interact_range": npc.interact_range,
+        "vision_radius": npc.properties["vision_radius"],
+        "hearing_radius": npc.properties["hearing_radius"],
+        "interact_range": npc.properties["interact_range"],
         "visible_entities": [{"id": e.id, "type": e.kind, "pos": [e.x, e.y]} for e in visible_entities(world, npc)],
         "recent_perceptions": pending_events[-12:],
     }
@@ -63,7 +56,7 @@ def broadcast(world, speaker, text: str, brains: dict, pending_obs: dict, sim_t:
     for e in world.entities.values():
         if e.id == speaker.id:
             continue
-        if chebyshev(speaker.x, speaker.y, e.x, e.y) > e.hearing_radius:
+        if chebyshev(speaker.x, speaker.y, e.x, e.y) > e.properties["hearing_radius"]:
             continue
         event = {"kind": "heard_say", "speaker": speaker.id, "speaker_type": speaker.kind,
                  "speaker_pos": [speaker.x, speaker.y], "text": text}
@@ -146,7 +139,7 @@ def progress_move(world, npc, goal, action_obj, journal: Journal, sim_t: float, 
         remember_action(brains, npc, {"kind": "did_move", "pos": [tx, ty], "outcome": "unreachable"}, sim_t)
         return "failed"
     result = attempt_move(world, npc, step[0] - npc.x, step[1] - npc.y)
-    npc.next_move_at = sim_t + npc.move_interval
+    npc.next_move_at = sim_t + npc.properties["move_interval"]
     if result["ok"]:
         journal.log(npc.id, "action_complete", action="move", **result)
     # blocked/occupied: stay active and retry next tick (pathing reroutes)
@@ -179,14 +172,14 @@ def advance_goals(world, npc, journal: Journal, sim_t: float, brains: dict,
 
 def death_cause(npc) -> str:
     """What killed a 0-hp entity, read from its meters."""
-    return "dehydration" if npc.thirst <= 0.0 else ("starvation" if npc.hunger <= 0.0 else "unknown")
+    return "dehydration" if npc.stats["thirst"] <= 0.0 else ("starvation" if npc.stats["hunger"] <= 0.0 else "unknown")
 
 
 def reap_dead(npcs: list, npcs_by_id: dict, world, journal: Journal, sim_t: float) -> list:
     """Remove NPCs whose health has hit 0 — death is permanent, there is no respawn.
     A dead NPC leaves the world (others perceive it disappear), stops thinking and
     perceiving, and its death is logged. Returns the ones that died this tick."""
-    dead = [n for n in npcs if n.hp <= 0.0]
+    dead = [n for n in npcs if n.stats["health"] <= 0.0]
     for npc in dead:
         cause = death_cause(npc)
         journal.log(npc.id, "death", pos=[npc.x, npc.y], cause=cause)
@@ -268,10 +261,12 @@ class Engine:
                         npc.target = None
 
     def _sense_stats(self, npc) -> list:
-        """One felt event per watched stat whose value — rounded, exactly as the
-        agent perceives it in its snapshot — changed since the last pass. The
-        first pass only sets the baseline (being spawned is not a change)."""
-        current = {name: round(getattr(npc, attr)) for name, attr in FELT_STATS.items()}
+        """One felt event per stat whose value — rounded, exactly as the agent
+        perceives it in its snapshot — changed since the last pass. Interoception
+        covers every entry in npc.stats (health, hunger, thirst, later mana, ...);
+        the internal counterpart of a `did`. The first pass only sets the baseline
+        (being spawned is not a change)."""
+        current = {name: round(val) for name, val in npc.stats.items()}
         last = self._felt_last.get(npc.id)
         self._felt_last[npc.id] = current
         if last is None:
@@ -293,7 +288,7 @@ class Engine:
             if not brain.pending_think and self.sim_t < self.next_think_at[npc.id]:
                 continue
             brain.pending_think = False
-            self.next_think_at[npc.id] = self.sim_t + npc.think_interval
+            self.next_think_at[npc.id] = self.sim_t + npc.properties["think_interval"]
             events = list(self.pending_obs[npc.id])
             self.pending_obs[npc.id] = []
             snapshot = build_snapshot(npc, self.world, events, self.sim_t)

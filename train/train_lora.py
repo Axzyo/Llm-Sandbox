@@ -27,7 +27,7 @@ def main():
     ap.add_argument("--data", default="train/data/sft.jsonl")
     ap.add_argument("--out", required=True, help="adapter output dir")
     ap.add_argument("--base", default="Qwen/Qwen2.5-3B-Instruct")
-    ap.add_argument("--epochs", type=float, default=3.0)
+    ap.add_argument("--epochs", type=float, default=2.0)   # epoch 3 gains were marginal (loss 0.19->0.15); 2 keeps rounds ~45min
     ap.add_argument("--lr", type=float, default=2e-4)
     ap.add_argument("--batch", type=int, default=2)
     ap.add_argument("--grad-accum", type=int, default=8)
