@@ -89,7 +89,13 @@ def run_episode(ep_id: str, path: str, provider, cfg: dict, rng: random.Random,
         world.entities[npc.id] = npc
         brains[npc.id] = Brain(npc.id, provider, journal,
                                memory_k=cfg["memory_k"], memory_halflife_s=cfg["memory_halflife_s"])
-    place_resources(world, rng)
+    placed = place_resources(world, rng)
+    # spawn->water distance per NPC: map luck dominates survival (0% beyond 15
+    # tiles measured), so score rows carry it and reports can stratify — maps
+    # stay fully random, comparisons stop measuring the dealer.
+    water = next((e for e in placed if e.kind == "water"), None)
+    water_dist = {n.id: (max(abs(n.x - water.x), abs(n.y - water.y)) if water else None)
+                  for n in npcs}
 
     journal.log("system", "spawn", model=getattr(provider, "model", "?"),
                 entities={e.id: list(e.pos) for e in world.entities.values()},
@@ -119,7 +125,7 @@ def run_episode(ep_id: str, path: str, provider, cfg: dict, rng: random.Random,
         row = {"episode": ep_id, "file": os.path.basename(path), "npc": nid,
                "drives": drives[nid], "profile": profile_key(drives[nid]),
                "return": round(returns[nid], 3), "survival_s": round(survival_s, 1),
-               "novelty": novelty[nid], "cause": cause}
+               "novelty": novelty[nid], "cause": cause, "water_dist": water_dist[nid]}
         journal.log(nid, "episode_result", **{k: v for k, v in row.items() if k not in ("episode", "file")})
         rows.append(row)
     journal.log("system", "shutdown", sim_t=round(engine.sim_t, 1))

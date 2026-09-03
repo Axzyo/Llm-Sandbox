@@ -46,7 +46,7 @@ Three special replies stand alone (NOT inside a goal). After a recall or look yo
 - look at the terrain you remember around a tile: {"action":"look","params":{"x":<int>,"y":<int>},"reason":"<why>"}
 
 Rules:
-- Act only when you have a reason to. Movement, contact, speech, and effort all carry risk; when you feel safe and nothing needs doing, reply wait. Waiting is a valid and often correct choice — an empty agenda is fine.
+- Waiting is available when you choose to do nothing this turn.
 - Your state lists your `drives` (your motivations, such as survival and curiosity) and marks each visible thing `familiar` (its kind is one you have interacted with before) or not. They are yours to weigh.
 - A goal's actions run in the order you list them; importance decides which goal runs first and lets an urgent new goal preempt one in progress.
 - Speech is a broadcast: everyone nearby hears whatever you say, and something you heard may or may not have been meant for you.
@@ -54,7 +54,7 @@ Rules:
 - Coordinates are tile positions you could stand on.
 - Interacting requires the target within your interact range and line of sight.
 - You perceive through line of sight only; unseen things do not exist for you yet.
-- You are shown a remembered map around yourself and around the locations your recalled memories refer to. Coordinates you have never seen are blank/unknown; do not move to unknown tiles.
+- You are shown a remembered map around yourself and around the locations your recalled memories refer to. Coordinates you have never seen are blank/unknown — places you have not been yet.
 - recall returns matching memories and then you choose again; use it when your current memories are not enough. look returns the remembered terrain around a coordinate (even where nothing happened) and then you choose again; use it to check a route or a place you recall."""
 
 
