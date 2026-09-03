@@ -359,6 +359,19 @@ def test_engine_headless():
     ncalls = len(prov.calls)
     engine.step(2.5)                     # sim_t 3.8 > next_think_at
     assert len(prov.calls) > ncalls, "the idle think cadence must fire"
+
+    # wait semantics: a wait action holds indefinitely (no clock) and only the
+    # next decision's goals end it
+    wait_goal = Goal(actions=[{"action": "wait"}], importance=5.0)
+    npc.goals.add(wait_goal)
+    for _ in range(4):
+        engine.step(1.0)
+    assert npc.goals.current() is wait_goal and wait_goal.status == "active", \
+        "waiting never completes on its own"
+    engine.post_goals("npc_1", [Goal(actions=[{"action": "say", "params": {"text": "up"}}],
+                                     importance=1.0)])
+    assert wait_goal.status == "done", "a new decision ends the wait"
+    assert npc.goals.current().actions[0]["action"] == "say", "even a lower-importance one"
     j.close()
     rec = [json.loads(l) for l in open(path, encoding="utf-8")]
     types = {r["type"] for r in rec}
@@ -745,7 +758,7 @@ def test_render_and_bearing():
 
 
 def test_recall_surfaces_memories():
-    prov = FakeProvider([{"action": "wait"}])
+    prov = FakeProvider([{"goals": [{"actions": [{"action": "wait"}], "importance": 1}]}])
     brain = Brain("npc_x", prov, memory_k=3)
     brain.record_events(
         [{"kind": "entity_entered", "id": "player", "pos": [1, 1], "etype": "player"}],
@@ -761,7 +774,7 @@ def test_recall_surfaces_memories():
         "recent_perceptions": [{"kind": "entity_entered", "id": "player"}],
     }
     goals = brain.decide(snap, events=[])
-    assert goals == [], "wait is an empty agenda"
+    assert len(goals) == 1 and goals[0].actions == [{"action": "wait"}], "waiting is a decision"
     assert len(brain.store) == 1, "decide must not create memories, only recall"
     last_user = prov.calls[-1][1]
     assert "player" in last_user and "saw" in last_user, last_user
@@ -875,12 +888,14 @@ def test_goal_infrastructure():
     assert parsed[0].importance == 7.0 and parsed[0].reason == "reposition"
     assert parsed[1].importance == 10.0, "importance clamps to [0,10]"
 
-    assert validate_goals({"goals": []}) is None, "empty agenda must be wait, not empty goals"
+    assert validate_goals({"goals": []}) is None, "an empty goals list is not a decision"
     assert validate_goals({"goals": [{"actions": [{"action": "move", "params": {"x": 1, "y": 1}},
                                                   {"action": "recall", "params": {"query": "x"}}],
                                       "importance": 3}]}) is None, "recall inside a plan is invalid"
     assert validate_goals({"goals": [{"actions": [{"action": "fly"}], "importance": 3}]}) is None, "unknown action"
-    assert validate_goals({"goals": [{"actions": [{"action": "wait"}], "importance": 3}]}) is None, "wait is not a plan action"
+    waitset = validate_goals({"goals": [{"actions": [{"action": "wait"}], "importance": 3}]})
+    assert waitset is not None and waitset[0].actions == [{"action": "wait"}], \
+        "wait is a world action inside a plan (a trainable decision)"
     assert validate_goals({"goals": [{"actions": [{"action": "say", "params": {"text": "hi"}}]}]}) is None, "importance is required"
     assert validate_goals({"goals": [{"actions": [{"action": "say", "params": {"text": "hi"}}],
                                       "importance": True}]}) is None, "boolean is not importance"
@@ -889,8 +904,9 @@ def test_goal_infrastructure():
     assert validate_goals("nope") is None
     assert validate_goals({"goals": "bad"}) is None
 
-    # filter_response routes the whole reply space: goals / wait / recall / bad
-    assert filter_response({"action": "wait", "reason": "safe"})["kind"] == "wait"
+    # filter_response routes the whole reply space: goals / recall / look / bad
+    assert filter_response({"action": "wait", "reason": "safe"})["kind"] == "bad", \
+        "standalone wait left the contract; wait lives inside goal-sets now"
     assert filter_response({"action": "recall", "params": {"query": "bear"}})["kind"] == "recall"
     assert filter_response({"goals": [{"actions": [{"action": "say", "params": {"text": "hi"}}],
                                        "importance": 2}]})["kind"] == "goals"
@@ -900,12 +916,12 @@ def test_goal_infrastructure():
     assert filter_response({"action": "look", "params": {"x": 4}})["kind"] == "bad", "look needs both coords"
     assert filter_response({"goals": [{"actions": [{"action": "fly"}], "importance": 1}]})["kind"] == "bad"
 
-    # goal_from_intent bridges a single validated intent; recall/wait/garbage -> None
+    # goal_from_intent bridges a single validated intent; recall/look/garbage -> None
     g = goal_from_intent({"action": "say", "params": {"text": "hey"}}, importance=3.0)
     assert g is not None and g.actions[0]["action"] == "say" and g.importance == 3.0
-    assert goal_from_intent({"action": "wait"}) is None
+    assert goal_from_intent({"action": "wait"}) is not None, "wait is a world action now"
     assert goal_from_intent({"action": "recall", "params": {"query": "x"}}) is None
-    assert goal_from_intent({"action": "wait"}) is None
+    assert goal_from_intent({"action": "look", "params": {"x": 1, "y": 2}}) is None
     assert goal_from_intent("nope") is None
     print("goal infrastructure ok")
 

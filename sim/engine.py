@@ -115,7 +115,7 @@ def enact_instant(world, npc, action_obj, journal: Journal, sim_t: float, brains
     if action == "say":
         broadcast(world, npc, params.get("text", ""), brains, pending_obs, sim_t, hear_log, journal)
         return "done"
-    # wait/recall are thinking-layer choices and never become goals, so they don't reach here
+    # recall/look are thinking-layer choices and never become goals, so they don't reach here
     journal.log(npc.id, "action_failed", action=str(action), reason="unknown_action")
     return "failed"
 
@@ -158,7 +158,12 @@ def advance_goals(world, npc, journal: Journal, sim_t: float, brains: dict,
         npc.goals.complete(goal)
         return
     goal.status = "active"
-    if action_obj.get("action") == "move":
+    action = action_obj.get("action")
+    if action == "wait":
+        # waiting is durative with no clock: the NPC holds in place until its next
+        # decision delivers new goals (post_goals completes the wait then)
+        return
+    if action == "move":
         outcome = progress_move(world, npc, goal, action_obj, journal, sim_t, brains)
     else:
         outcome = enact_instant(world, npc, action_obj, journal, sim_t, brains, pending_obs, hear_log)
@@ -304,6 +309,11 @@ class Engine:
         result queue). The entity may have died while thinking."""
         self.thinking[eid] = False
         if goals and eid in self.npcs_by_id:
-            self.npcs_by_id[eid].goals.add_many(goals)     # merged + re-sorted by importance
+            npc = self.npcs_by_id[eid]
+            # a new decision is the one thing that ends a wait: the held goal completes
+            cur = npc.goals.current()
+            if cur is not None and (cur.current_action or {}).get("action") == "wait":
+                npc.goals.complete(cur)
+            npc.goals.add_many(goals)                      # merged + re-sorted by importance
             self.journal.log(eid, "goals_added", goals=[g.summary() for g in goals],
                              importances=[g.importance for g in goals])

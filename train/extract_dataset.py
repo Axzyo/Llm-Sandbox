@@ -6,8 +6,9 @@ that are a valid GOAL-SET (the decision), and emit chat triples:
 
     {"system": ..., "user": ..., "assistant": <canonical goal-set JSON>}
 
-`recall` / `look` (thinking steps), `wait` (do-nothing), and malformed replies are
-NOT training targets here — we distill the DECISIONS. The assistant text is
+`recall` / `look` (thinking steps) and malformed replies are NOT training
+targets here — we distill the DECISIONS. A goal-set containing `wait` IS a
+decision (choosing to hold is behavior the student must learn too). The assistant text is
 json.dumps(goals_to_obj(validated goals)) — exactly the object the game would run
 (extras stripped, importance clamped), so the model learns the behavior the sim
 accepts.
@@ -173,7 +174,6 @@ def main():
     print(f"responses w/ raw   : {stats['responses_with_raw']}")
     print(f"orphan responses   : {stats['orphan_responses']}")
     print(f"skipped (thinking) : recall={stats['skipped_recall']} look={stats['skipped_look']}")
-    print(f"skipped (wait)     : {stats['skipped_wait']} (do-nothing)")
     print(f"skipped (bad)      : {stats['skipped_bad']} (failed the response filter)")
     if keep is not None:
         print(f"filtered (return)  : {stats['filtered_low_return']} events from low-return trajectories")

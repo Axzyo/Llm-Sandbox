@@ -19,43 +19,39 @@ def _merge_memories(base: list, more: list) -> list:
     return base + [m for m in more if m["id"] not in seen]
 
 SYSTEM_TEMPLATE = """You are __NAME__, an autonomous agent in a 2D grid world.
-Your only directive: survive.
-You accumulate experiences; they shape how you act, but they never force you.
 
-You have three survival needs — health, hunger, and thirst — each from 0 (empty) to 100 (full). Hunger and thirst fall on their own over time. If either reaches 0 your health drains; keep both well up and your health slowly recovers. Keeping your needs high is what surviving means. Your state reports their values.
+You have three needs — health, hunger, and thirst — each from 0 (empty) to 100 (full). Hunger and thirst fall on their own over time. If either reaches 0 your health drains; while both are well-supplied your health slowly recovers. At 0 health you die. Your state reports their values.
 
 Each turn you receive your current state as JSON. You reply with EXACTLY one JSON object and nothing else.
 
-A GOAL is one plan: an ordered list of actions you intend to carry out, with a single "importance" (0–10, higher = more urgent) and a short "reason". Your reply is your set of goals right now:
+A GOAL is one plan: an ordered list of actions, with a single "importance" (0–10, higher = more urgent) and a short "reason". Your reply is your set of goals right now:
 
 {"goals":[
   {"actions":[<action>, <action>, ...], "importance":<0-10>, "reason":"<why this plan>"}
 ]}
-
-Most of the time one goal with one or two actions is enough; author several only when you truly hold several separate intentions, and let importance rank them.
 
 The actions a plan may contain:
 - move to a tile: {"action":"move","params":{"x":<int>,"y":<int>}}
 - interact with an entity or pick up an item from the ground: {"action":"interact","params":{"target":"<entity id>"}}
 - say something aloud — anyone nearby hears it: {"action":"say","params":{"text":"<what you say>"}}
 - manage an item you already carry: {"action":"inventory","params":{"op":"use|drop|arrange","item":"<item>"}}
+- do nothing, holding in place: {"action":"wait"}
 
-Three special replies stand alone (NOT inside a goal). After a recall or look you will be shown the result and get to choose again:
-- do nothing this turn, just observe: {"action":"wait","reason":"<why>"}
-- search your memory before deciding: {"action":"recall","params":{"query":"<what to remember>","sense":"saw|heard|did|felt (optional)"},"reason":"<why>"}
+Two special replies stand alone (NOT inside a goal). After either you are shown the result and choose again:
+- search your memory: {"action":"recall","params":{"query":"<what to remember>","sense":"saw|heard|did|felt (optional)"},"reason":"<why>"}
 - look at the terrain you remember around a tile: {"action":"look","params":{"x":<int>,"y":<int>},"reason":"<why>"}
 
 Rules:
-- Waiting is available when you choose to do nothing this turn.
-- Your state lists your `drives` (your motivations, such as survival and curiosity) and marks each visible thing `familiar` (its kind is one you have interacted with before) or not. They are yours to weigh.
-- A goal's actions run in the order you list them; importance decides which goal runs first and lets an urgent new goal preempt one in progress.
-- Speech is a broadcast: everyone nearby hears whatever you say, and something you heard may or may not have been meant for you.
-- inventory manages items you already have (use, drop, arrange); taking an item off the ground is instead an interact with it.
+- Your state lists your `drives` (your motivations, such as survival and curiosity) and marks each visible thing `familiar` (its kind is one you have interacted with before) or not.
+- A goal's actions run in the order you list them; importance decides which goal runs first and lets a more important goal preempt one in progress.
+- A wait holds until your next decision delivers new goals; those end it.
+- Speech is a broadcast: everyone within earshot hears it.
+- inventory manages items you already carry (use, drop, arrange); taking an item off the ground is an interact with it.
 - Coordinates are tile positions you could stand on.
 - Interacting requires the target within your interact range and line of sight.
 - You perceive through line of sight only; unseen things do not exist for you yet.
 - You are shown a remembered map around yourself and around the locations your recalled memories refer to. Coordinates you have never seen are blank/unknown — places you have not been yet.
-- recall returns matching memories and then you choose again; use it when your current memories are not enough. look returns the remembered terrain around a coordinate (even where nothing happened) and then you choose again; use it to check a route or a place you recall."""
+- recall returns matching memories, then you choose again. look returns the remembered terrain around a coordinate (even where nothing happened), then you choose again."""
 
 
 def validate_intent(obj) -> dict | None:
@@ -115,7 +111,7 @@ def _validate_action(obj) -> dict | None:
     return None
 
 
-GOAL_ACTIONS = ("move", "interact", "say", "inventory")   # verbs allowed inside a plan
+GOAL_ACTIONS = ("move", "interact", "say", "inventory", "wait")   # verbs allowed inside a plan
 IMPORTANCE_MIN, IMPORTANCE_MAX = 0.0, 10.0
 
 
@@ -128,7 +124,7 @@ def validate_goals(obj) -> list[Goal] | None:
 
     Rejection (→ None) if: not that object shape, an empty goals list, a goal that
     is not a dict, a missing/empty/non-list `actions`, any action that fails the
-    world schema or is a thinking-layer verb (recall/wait), or a missing /
+    world schema or is a thinking-layer verb (recall/look), or a missing /
     non-numeric `importance`. `importance` is clamped to [0, 10]; `reason` is
     optional. Ordering by importance happens later in GoalList.
     """
@@ -179,20 +175,16 @@ def filter_response(raw):
     """The response filter: classify a raw LLM reply against the strict contract.
 
     Returns a small verdict dict — exactly one of:
-        {"kind": "goals",  "goals": [Goal, ...]}   a valid goal-set
-        {"kind": "wait"}                            valid do-nothing reply
+        {"kind": "goals",  "goals": [Goal, ...]}   a valid goal-set (may contain wait actions)
         {"kind": "recall", "params": {...}}         valid memory-search reply
         {"kind": "look",   "params": {"x","y"}}     valid remembered-terrain look-up
         {"kind": "bad",    "reason": "<why>"}       does not match the contract
     """
-    if isinstance(raw, dict) and raw.get("action") in ("wait", "recall", "look"):
+    if isinstance(raw, dict) and raw.get("action") in ("recall", "look"):
         intent = validate_intent(raw)
         if intent is None:
             return {"kind": "bad", "reason": f"malformed {raw.get('action')}"}
-        act = intent["action"]
-        if act == "wait":
-            return {"kind": "wait"}
-        return {"kind": act, "params": intent.get("params", {})}
+        return {"kind": intent["action"], "params": intent.get("params", {})}
     goals = validate_goals(raw)
     if goals is None:
         return {"kind": "bad", "reason": "not a valid goal-set"}
@@ -527,13 +519,13 @@ class Brain:
         if memories:
             lines = [f"- {render_memory(m)}" for m in memories]
             parts.append("memories you recall:\n" + "\n".join(lines))
-        parts.append("Choose your goals as JSON, or reply wait / recall / look.")
+        parts.append("Choose your goals as JSON, or reply recall / look.")
         msg = "\n\n".join(parts)
         if corrective:
             msg += (
                 "\nIMPORTANT: your previous output was not valid. Reply with exactly one"
                 ' JSON object: {"goals":[{"actions":[...],"importance":<0-10>,"reason":"..."}]},'
-                ' or {"action":"wait","reason":"..."}, or a recall/look object.'
+                ' or a recall/look object.'
             )
         return msg
 
@@ -541,7 +533,7 @@ class Brain:
         """Return the NPC's goal set for this think (possibly empty = do nothing).
 
         Memory is written at perception time now, not here; decide only recalls +
-        plans. The LLM may first `recall` (bounded by MAX_RECALLS) or `wait`;
+        plans. The LLM may first `recall` (bounded by MAX_RECALLS) or `look`;
         otherwise its output is parsed into importance-ranked Goal plans.
         """
         now_t = float(snapshot.get("t", 0.0))
@@ -574,8 +566,6 @@ class Brain:
                     self.journal.log(self.entity_id, "map_look", x=p["x"], y=p["y"])
                 corrective = False
                 continue
-            if kind == "wait":
-                return []                        # explicit do-nothing: empty agenda
             if kind == "goals":
                 return res["goals"]
             # bad response (or a pull past its cap): log it, nudge once, then give up
