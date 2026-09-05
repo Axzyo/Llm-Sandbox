@@ -1,7 +1,6 @@
 import json
 import os
 import threading
-import time
 
 
 class Journal:
@@ -11,20 +10,19 @@ class Journal:
             os.makedirs(parent, exist_ok=True)
         self.fh = open(path, "a", encoding="utf-8")
         self.run_id = run_id
-        self.t0 = time.monotonic()
         self.lock = threading.Lock()
-        self.clock = None      # optional sim-time source; when set, every record carries sim_t
+        # every record is stamped with sim time. Sim time is 0 until an Engine
+        # exists (it starts its clock there and re-points this at itself).
+        self.clock = lambda: 0.0
 
     def log(self, actor: str, type_: str, **payload) -> None:
         rec = {
-            "t": round(time.monotonic() - self.t0, 3),
+            "t": round(self.clock(), 3),
             "run": self.run_id,
             "actor": actor,
             "type": type_,
             "payload": payload,
         }
-        if self.clock is not None:
-            rec["sim_t"] = round(self.clock(), 3)
         line = json.dumps(rec) + "\n"
         with self.lock:
             self.fh.write(line)

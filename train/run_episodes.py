@@ -127,7 +127,7 @@ def run_episode(ep_id: str, path: str, provider, cfg: dict, rng: random.Random,
                "novelty": novelty[nid], "cause": cause, "water_dist": water_dist[nid]}
         journal.log(nid, "episode_result", **{k: v for k, v in row.items() if k not in ("episode", "file")})
         rows.append(row)
-    journal.log("system", "shutdown", sim_t=round(engine.sim_t, 1))
+    journal.log("system", "shutdown")
     journal.close()
     return rows
 

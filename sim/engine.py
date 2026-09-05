@@ -201,7 +201,7 @@ class Engine:
         self.npcs_by_id = {n.id: n for n in npcs}
         self.brains = brains
         self.journal = journal
-        journal.clock = lambda: self.sim_t                # every record carries sim time
+        journal.clock = lambda: self.sim_t                # journal records stamp sim time
         self.dispatch_think = dispatch_think              # None = think inline (headless)
         self.trackers = {n.id: PerceptionTracker(n.id) for n in npcs}
         self.pending_obs = {n.id: [] for n in npcs}

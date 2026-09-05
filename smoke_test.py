@@ -951,13 +951,13 @@ def test_journal():
     path = os.path.join(tempfile.mkdtemp(), "smoke.jsonl")
     j = Journal(path, "smoke")
     j.log("system", "spawn", entities={"player": [3, 3]})
-    j.clock = lambda: 42.5                # a sim-time source (the Engine wires this up)
+    j.clock = lambda: 42.5                # the Engine points this at its sim clock
     j.log("player", "dialogue_msg", partner="npc_1", text="hi")
     j.close()
     with open(path, encoding="utf-8") as fh:
         records = [json.loads(line) for line in fh]
     assert all({"t", "run", "actor", "type", "payload"} <= set(rec) for rec in records)
-    assert "sim_t" not in records[0] and records[1]["sim_t"] == 42.5, "clocked records carry sim_t"
+    assert records[0]["t"] == 0.0 and records[1]["t"] == 42.5, "t is sim time: 0 before an engine, its clock after"
     print(f"journal records: {len(records)}")
 
 
