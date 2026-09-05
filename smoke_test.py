@@ -7,7 +7,7 @@ from sim.brain import Brain, validate_intent, validate_goals, filter_response, m
 from sim.entities import Entity
 from sim.goals import Goal, GoalList, goal_from_intent, DEFAULT_IMPORTANCE
 from sim.journal import Journal
-from sim.terrain import build_test_map, place_resources, tick_resources, interact_with, use_item, BERRY_AMOUNT
+from sim.terrain import CONNECTORS, GROUND, build_test_map, make, place_resources, tick_connectors, interact_with, use_item
 from sim.consolidation import Consolidator, subject_diff
 from sim.memory import MemoryStore, tokenize
 from sim.pathing import next_step
@@ -17,7 +17,7 @@ from sim.engine import Engine, death_cause
 from sim.needs import tick_needs, HUNGER_DRAIN_PER_S, THIRST_DRAIN_PER_S, HEALTH_REGEN_PER_S
 from sim.reward import curiosity_reward, note_novelty, reward, survival_reward, validate_drives
 from sim.provider import OllamaProvider, _text_value_so_far
-from sim.world import has_los
+from sim.world import Connector, World, has_los, level_of
 
 
 class FakeProvider:
@@ -48,7 +48,7 @@ def test_movement_and_interact():
     world, player, npc1, npc2 = build_world()
 
     r = attempt_move(world, player, 1, 0)
-    assert r["ok"] and player.pos == (4, 3), r
+    assert r["ok"] and player.pos == (4, 3, 1.0), r
 
     player.x, player.y = 7, 7
     r = attempt_move(world, player, 0, 1)
@@ -68,7 +68,7 @@ def test_movement_and_interact():
     ), res
 
     player.x, player.y = 17, 4
-    assert not has_los(world, 17, 4, 18, 5), "corner must block LOS"
+    assert not has_los(world, 17, 4, 18, 5, 1.5), "corner must block LOS"
     res = evaluate_interact(world, player)
     assert not res["ok"] and res["range_ok"] and not res["los_ok"], res
 
@@ -77,20 +77,83 @@ def test_movement_and_interact():
     assert not res["ok"] and not res["range_ok"], res
 
 
+def test_layers():
+    """The cell record: floors and connector spans decide where a body can stand,
+    what it can step to, and what it sees -- nothing knows a 'table' or 'stair'."""
+    w = World(6, 3)
+    for x in range(6):
+        w.put(x, 1, 0, floor="stone", connector=Connector("dirt"))   # ground: dirt slab, top at 1
+        w.put(x, 1, 1, floor="grass")                                # grass floor laid on it
+    assert w.surfaces(0, 1) == [0.0, 1.0] and w.tile_type(0, 1, 1) == "floor"
+    assert w.tile_type(0, 1, 0) == "wall", "from inside the ground slab the dirt is solid"
+
+    # a 1x1 hole: grass and dirt gone at x=1 -> the column drops to the stone at 0
+    w.put(1, 1, 0, floor="stone")
+    w.put(1, 1, 1)
+    assert w.surfaces(1, 1) == [0.0] and w.tile_type(1, 1, 1) == "drop"
+    tall = Entity("t", "t", "npc", 0, 1, 1.0)
+    r = attempt_move(w, tall, 1, 0)
+    assert r["ok"] and tall.z == 0.0 and tall.level == 0, r          # any drop is allowed
+    assert attempt_move(w, tall, -1, 0)["reason"] == "blocked", "a full dirt block is too tall to climb"
+    assert w.tile_type(2, 1, 0) == "wall", "from the hole the dirt next door is solid"
+
+    # reshape the neighbouring dirt into a half-height step -> climbable, then out
+    w.put(2, 1, 0, floor="stone", connector=Connector("dirt", 0.0, 0.5))
+    w.put(2, 1, 1)
+    assert w.tile_type(2, 1, 0) == "step"
+    assert attempt_move(w, tall, 1, 0)["ok"] and tall.z == 0.5, "onto the step"
+    assert attempt_move(w, tall, 1, 0)["ok"] and tall.z == 1.0, "and up onto the grass"
+
+    # a table (0..0.5) under a hole in the floor above: a faller lands on the table,
+    # never touching the floor beneath it
+    w.put(3, 1, 0, floor="stone", connector=Connector("wood", 0.0, 0.5))
+    w.put(3, 1, 1)
+    assert w.landing(3, 1, 1.0, 0.5, 1.0) == 0.5 and w.tile_type(3, 1, 1) == "drop"
+    # ... but close the floor over that table and, approached from the ground slab,
+    # a full-height body no longer fits on it (nor under it): only a short one does
+    w.put(3, 1, 1, floor="grass")
+    assert w.landing(3, 1, 0.0, 0.5, 1.0) is None
+    assert w.landing(3, 1, 0.0, 0.5, 0.5) == 0.5, "a short body still fits on the table"
+    w.put(3, 1, 1)
+
+    # under the stairs: the upper step spans 0.5..1 of its slab, so the space
+    # beneath it is a half-slab gap -- a short body walks under, a tall one cannot
+    w.put(4, 1, 1, floor="grass", connector=Connector("wood", 0.5, 1.0))
+    assert w.tile_type(4, 1, 1) == "step"
+    assert w.landing(4, 1, 1.0, 0.5, 1.0) is None, "no room under the step for a full body"
+    assert w.landing(4, 1, 1.0, 0.5, 0.4) == 1.0, "a short body ducks under"
+    assert w.landing(4, 1, 1.5, 0.5, 1.0) == 2.0, "from half a slab up, onto the step's top: level 2"
+    assert level_of(2.0) == 2 and level_of(1.5) == 1
+
+    # sight: mid-body height. A half wall is seen over, a full wall is not
+    w.put(5, 1, 1, floor="grass", connector=Connector("stone", 0.0, 0.5))
+    assert not w.opaque(5, 1, 1.5) and w.opaque(5, 1, 1.25), "sight passes over a half wall, a crouch does not"
+    assert w.opaque(0, 1, 0.5) and not w.opaque(0, 1, 1.5), "dirt blocks sight inside its slab only"
+    assert has_los(w, 3, 1, 5, 1, 1.25), "a sight line under the upper stair step is clear"
+    assert not has_los(w, 3, 1, 5, 1, 1.5), "one through the step is not"
+    assert not has_los(w, 1, 1, 3, 1, 0.25), "down in the hole, the half-height dirt step blocks a low sight line"
+
+    # the same-column occupancy rule is per level
+    low = Entity("l", "l", "npc", 4, 1, 1.0)
+    high = Entity("h", "h", "npc", 4, 1, 2.0)
+    w.entities = {e.id: e for e in (low, high)}
+    assert w.entity_at(4, 1, 1) is low and w.entity_at(4, 1, 2) is high and w.entity_at(4, 1) is not None
+
+
 def test_pathing():
-    world, _, _, _ = build_world()
-    start, goal = (5, 5), (19, 9)
-    cur = start
+    world, player, _, _ = build_world()
+    player.x, player.y = 5, 5
+    goal = (19, 9)
     for _ in range(200):
-        step = next_step(world, cur, goal)
+        step = next_step(world, player, goal)
         assert step is not None, "path should exist"
-        assert not world.blocked(*step), "step must be walkable"
-        cur = step
-        if cur == goal:
+        assert step[2] == world.landing(step[0], step[1], player.z, 0.5, 1.0), "step must be a legal landing"
+        player.x, player.y, player.z = step
+        if (player.x, player.y) == goal:
             break
-    assert cur == goal
-    assert next_step(world, goal, goal) is None
-    assert next_step(world, start, (0, 0)) is None, "goal inside wall unreachable"
+    assert (player.x, player.y) == goal and player.z == 1.0
+    assert next_step(world, player, goal) is None
+    assert next_step(world, player, (0, 0)) is None, "goal inside wall unreachable"
 
 
 def test_perception():
@@ -120,70 +183,72 @@ def test_perception():
 
 
 def test_spatial_memory():
-    world, player, npc1, npc2 = build_world()   # npc_1 at (19,9), vision 8
+    world, player, npc1, npc2 = build_world()   # npc_1 at (19,9) on level 1, vision 8
     seen = dict(visible_tiles(world, npc1))
     # own tile is seen floor; the right border wall (23,9) is in view and remembered as wall
-    assert seen[(19, 9)] == "floor", seen.get((19, 9))
-    assert seen[(23, 9)] == "wall", "the border wall in view is seen"
+    assert seen[(19, 9, 1)] == "floor", seen.get((19, 9, 1))
+    assert seen[(23, 9, 1)] == "wall", "the border wall in view is seen"
     # a tile occluded by the x=15 wall column is NOT seen (LOS only)
-    assert (14, 9) not in seen, "tile behind a wall must be unseen"
+    assert (14, 9, 1) not in seen, "tile behind a wall must be unseen"
+    assert all(k[2] == 1 for k in seen), "an entity sees its own level"
 
     sm = SpatialMemory("npc_1")
     new = sm.observe_many(seen.items())
     assert new == len(seen) and len(sm) == len(seen)
     assert sm.observe_many(seen.items()) == 0, "re-seeing discovers nothing new"
-    assert sm.get((23, 9)) == "wall" and sm.known((19, 9)) and not sm.known((14, 9))
+    assert sm.get((23, 9, 1)) == "wall" and sm.known((19, 9, 1)) and not sm.known((14, 9, 1))
 
-    m = sm.render_local((19, 9), radius=4)
-    assert "@" in m and "#" in m and "y=  9" in m, m
-    assert SpatialMemory("x").render_local((0, 0), 3) is None, "nothing remembered -> no map"
+    m = sm.render_local((19, 9, 1), radius=4)
+    assert "@" in m and "#" in m and "y=  9" in m and "level 1" in m, m
+    assert sm.render_local((19, 9, 0), radius=4) is None, "another level is unknown"
+    assert SpatialMemory("x").render_local((0, 0, 1), 3) is None, "nothing remembered -> no map"
 
     # memorability: seeing a tile reinforces it, up to the cap
     from sim.spatial import SIGHT_BOOST, MEMORABILITY_CAP
     f = SpatialMemory("f", max_tiles=None)
-    f.observe((0, 0), "floor")
-    assert f.memorability((0, 0)) == SIGHT_BOOST
+    f.observe((0, 0, 1), "floor")
+    assert f.memorability((0, 0, 1)) == SIGHT_BOOST
     for _ in range(20):
-        f.observe((0, 0), "floor")
-    assert f.memorability((0, 0)) == MEMORABILITY_CAP, "reinforcement caps out"
+        f.observe((0, 0, 1), "floor")
+    assert f.memorability((0, 0, 1)) == MEMORABILITY_CAP, "reinforcement caps out"
 
     # decay + threshold: an un-refreshed tile fades and is forgotten; a nearby goal
     # floors memorability by proximity so goal-relevant geometry survives
     a = SpatialMemory("a", max_tiles=None)
-    a.observe_many([((0, 0), "floor"), ((10, 0), "floor")])       # both start at SIGHT_BOOST
+    a.observe_many([((0, 0, 1), "floor"), ((10, 0, 1), "floor")])   # both start at SIGHT_BOOST
     passes = 0
-    while a.known((0, 0)) and passes < 100:
+    while a.known((0, 0, 1)) and passes < 100:
         a.age(goal_locations=[((10, 0), 3.0)])                     # importance-3 goal on (10,0)
         passes += 1
-    assert not a.known((0, 0)), "the tile far from any goal decays away"
-    assert a.known((10, 0)) and a.memorability((10, 0)) >= 3.0 * 0.9, "goal tile floored to importance"
+    assert not a.known((0, 0, 1)), "the tile far from any goal decays away"
+    assert a.known((10, 0, 1)) and a.memorability((10, 0, 1)) >= 3.0 * 0.9, "goal tile floored to importance"
     # a MORE important goal floors its tile higher
-    a.observe((20, 0), "floor")
+    a.observe((20, 0, 1), "floor")
     a.age(goal_locations=[((20, 0), 9.0)])
-    assert a.memorability((20, 0)) > a.memorability((10, 0)), "higher-importance goal = stickier geometry"
+    assert a.memorability((20, 0, 1)) > a.memorability((10, 0, 1)), "higher-importance goal = stickier geometry"
 
     # cap backstop evicts the LEAST memorable first (not the oldest)
     capped = SpatialMemory("c", max_tiles=3)
-    capped.observe_many([((i, 0), "floor") for i in range(5)])    # all equal memorability
-    capped.observe((4, 0), "floor")                               # bump (4,0) above the rest
-    capped.observe((3, 0), "floor")
-    capped.observe_many([((9, 0), "floor")])                      # force a 6th -> over cap
-    assert len(capped) == 3 and capped.known((4, 0)) and capped.known((3, 0)), "kept most memorable"
+    capped.observe_many([((i, 0, 1), "floor") for i in range(5)])   # all equal memorability
+    capped.observe((4, 0, 1), "floor")                               # bump (4,0) above the rest
+    capped.observe((3, 0, 1), "floor")
+    capped.observe_many([((9, 0, 1), "floor")])                      # force a 6th -> over cap
+    assert len(capped) == 3 and capped.known((4, 0, 1)) and capped.known((3, 0, 1)), "kept most memorable"
 
     # Brain wiring: perceive reinforces, maintain_spatial decays + protects goals
     b = Brain("b", object())
-    b.perceive_tiles([((5, 5), "floor"), ((40, 40), "floor")])
+    b.perceive_tiles([((5, 5, 1), "floor"), ((40, 40, 1), "floor")])
     for _ in range(60):
         b.maintain_spatial(goal_locations=[((5, 5), 4.0)])        # (5,5) protected, (40,40) not
-    assert b.spatial.known((5, 5)) and not b.spatial.known((40, 40)), "goal-far geometry fades"
+    assert b.spatial.known((5, 5, 1)) and not b.spatial.known((40, 40, 1)), "goal-far geometry fades"
 
 
 def test_death():
     import main
     from sim.world import World
     world = World(6, 6)
-    alive = Entity("npc_1", "npc_1", "npc", 1, 1)
-    doomed = Entity("npc_2", "npc_2", "npc", 2, 2)
+    alive = Entity("npc_1", "npc_1", "npc", 1, 1, 1.0)
+    doomed = Entity("npc_2", "npc_2", "npc", 2, 2, 1.0)
     doomed.stats["health"], doomed.stats["thirst"] = 0.0, 0.0   # dehydrated to death
     for e in (alive, doomed):
         world.entities[e.id] = e
@@ -203,48 +268,74 @@ def test_death():
 def test_terrain_resources():
     import random as _random
     world, spawns = build_test_map()
-    spawn_tiles = set(spawns.values())
+    spawn_tiles = {(x, y) for x, y, _z in spawns.values()}
     placed = place_resources(world, _random.Random(1))
-    kinds = sorted(e.kind for e in placed)
-    assert kinds == ["berry_bush", "berry_bush", "berry_bush", "water"], kinds
-    for e in placed:
-        assert not world.is_wall(e.x, e.y), "resource on a wall"
-        assert (e.x, e.y) not in spawn_tiles, "resource on a spawn tile"
-    assert len({(e.x, e.y) for e in placed}) == 4, "resources overlap"
+    kinds = sorted(o.kind for o in placed)
+    assert kinds == ["bush", "bush", "bush", "well"], kinds
+    for o in placed:
+        # a resource is the cell's connector object, set on the ground level
+        assert world.cell(o.x, o.y, GROUND).connector.id == o.id and o.z == GROUND
+        assert world.tile_type(o.x, o.y, GROUND) == "step", "a part-height object on the map"
+        assert (o.x, o.y) not in spawn_tiles, "resource on a spawn tile"
+        assert world.thing(o.id) == o and world.thing_at(o.x, o.y, GROUND) == o
+    assert len({(o.x, o.y) for o in placed}) == 4, "resources overlap"
+    assert len(world.objects()) == 4 and len(world.things()) == 4, "named objects only; dirt and walls are anonymous"
 
-    water = next(e for e in placed if e.kind == "water")
-    bush = next(e for e in placed if e.kind == "berry_bush")
+    water = next(o for o in placed if o.kind == "well")
+    bush = next(o for o in placed if o.kind == "bush")
+    # spans are the objects' only physics: a bush is too tall to climb and blocks a
+    # sight line; a well's rim can be stood on and seen over
+    walker = Entity("w", "w", "npc", bush.x, bush.y, 1.0)
+    assert world.landing(bush.x, bush.y, 1.0, walker.properties["climb"], 1.0) is None
+    assert world.opaque(bush.x, bush.y, 1.5) and not world.opaque(water.x, water.y, 1.5)
+    assert world.landing(water.x, water.y, 1.0, 0.5, 1.0) == 1.5
 
-    a = Entity("a", "a", "npc", 0, 0)
+    a = Entity("a", "a", "npc", 0, 0, 1.0)
     a.stats["hunger"], a.stats["thirst"] = 20.0, 10.0
 
-    # drink water: thirst stat raised, water is not used up (infinite source, no item)
+    # tags are the whole of a type's behavior: the well's interact tag restores
+    # thirst on the spot and the well is unchanged (nothing says otherwise)
     out = interact_with(water, a, now=5.0)
-    assert out == {"ok": True, "did": "drink", "stat": "thirst", "gained": 90.0}, out
-    assert a.stats["thirst"] == 100.0 and a.inventory == []
+    assert out == {"ok": True, "effects": [{"stat": "thirst", "gained": 90.0}]}, out
+    assert a.stats["thirst"] == 100.0 and a.inventory == [] and water.connector.type == "well"
+    assert interact_with(a, a, now=5.0) is None, "an entity has no tags"
 
-    # pick berries: a 'berry' item enters the inventory; the bush is now empty + regrowing
+    # the bush's interact tags: give a berry, then become an empty_bush (same cell,
+    # same id, the empty type's span and its regrow timer). A watcher sees the change.
+    watcher = Entity("w2", "w2", "npc", bush.x, bush.y - 1 if bush.y > 1 else bush.y + 1, 1.0)
+    world.entities[watcher.id] = watcher
+    tracker = PerceptionTracker(watcher.id)
+    assert any(e["id"] == bush.id and e["etype"] == "bush" for e in tracker.update(world, watcher))
+    k = bush.connector
     out = interact_with(bush, a, now=5.0, rng=_random.Random(2))
-    assert out == {"ok": True, "did": "harvest", "yields": "berry"}, out
-    assert a.inventory == ["berry"] and a.stats["hunger"] == 20.0, "picking doesn't feed you — eating does"
-    assert bush.resource["available"] is False and bush.resource["regrow_at"] is not None
-    assert interact_with(bush, a, now=6.0) == {"ok": False, "did": "harvest", "reason": "empty"}
+    assert out == {"ok": True, "effects": [{"item": "berry"}, {"became": "empty_bush"}]}, out
+    changed = [e for e in tracker.update(world, watcher) if e["id"] == bush.id]
+    assert changed == [{"kind": "entity_changed", "id": bush.id, "pos": [bush.x, bush.y, 1.0], "etype": "empty_bush"}], changed
+    del world.entities[watcher.id]
+    assert a.inventory == ["berry"] and a.stats["hunger"] == 20.0, "picking doesn't feed you - eating does"
+    assert k.type == "empty_bush" and k.id == bush.id and (k.bottom, k.top) == CONNECTORS["empty_bush"]["span"]
+    assert world.thing(bush.id).kind == "empty_bush", "others now perceive an empty bush"
+    lo, hi = CONNECTORS["empty_bush"]["tags"][0]["after"]
+    assert k.timer is not None and 5.0 + lo <= k.timer <= 5.0 + hi
+    # an empty bush has no interact tags: touching it does nothing, and says so
+    assert interact_with(world.thing(bush.id), a, now=6.0) == {"ok": True, "effects": []}
 
-    # eat the berry (inventory use): hunger rises, the berry is consumed
+    # eat the berry (inventory use): its use tag raises hunger, the berry is consumed
     out = use_item(a, "berry")
-    assert out == {"ok": True, "did": "use", "item": "berry", "stat": "hunger", "gained": float(BERRY_AMOUNT)}, out
-    assert a.stats["hunger"] == 20.0 + BERRY_AMOUNT and a.inventory == []
+    assert out == {"ok": True, "did": "use", "item": "berry", "effects": [{"stat": "hunger", "gained": 40.0}]}, out
+    assert a.stats["hunger"] == 60.0 and a.inventory == []
     assert use_item(a, "berry") is None, "no berry left to eat"
 
-    # the bush regrows a berry after its timer
-    tick_resources(world, now=bush.resource["regrow_at"] - 1)
-    assert bush.resource["available"] is False
-    tick_resources(world, now=bush.resource["regrow_at"])
-    assert bush.resource["available"] is True, "berry regrew after its timer"
+    # the empty bush's timed tag: it becomes a bush again when its timer comes due
+    tick_connectors(world, now=k.timer - 1)
+    assert k.type == "empty_bush"
+    tick_connectors(world, now=k.timer)
+    assert k.type == "bush" and k.timer is None and k.top == 0.75, "regrew into a bush"
+    assert all(c.timer is None for c in world.connectors() if c.type in ("dirt", "stone")), "bulk has no timers"
 
 
 def test_needs():
-    e = Entity("npc_1", "npc_1", "npc", 5, 5)
+    e = Entity("npc_1", "npc_1", "npc", 5, 5, 1.0)
     s = e.stats
     assert s["health"] == 100 and s["hunger"] == 100.0 and s["thirst"] == 100.0, "start full"
 
@@ -275,7 +366,7 @@ def test_reward():
     world = World(4, 4)
 
     # topped-off survivalist: reward ~ 1 * survival signal
-    e = Entity("a", "a", "npc", 1, 1)
+    e = Entity("a", "a", "npc", 1, 1, 1.0)
     e.drives = {"survival": 1.0, "curiosity": 0.0}
     assert survival_reward(e, world) == 1.0 and reward(e, world) == 1.0
 
@@ -288,7 +379,7 @@ def test_reward():
     assert survival_reward(e, world) == 0.0, "death ends reward accrual"
 
     # curiosity pays out when a type newly becomes familiar, once
-    c = Entity("c", "c", "npc", 1, 1)
+    c = Entity("c", "c", "npc", 1, 1, 1.0)
     c.drives = {"survival": 0.5, "curiosity": 0.5}
     brain = Brain("c", object())
     seen = {}
@@ -317,12 +408,10 @@ def test_reward():
 def test_engine_headless():
     from sim.world import World
     world = World(8, 8)
-    npc = Entity("npc_1", "npc_1", "npc", 1, 1)
+    npc = Entity("npc_1", "npc_1", "npc", 1, 1, 1.0)
     npc.stats["thirst"] = 40.0
-    water = Entity("water_1", "water_1", "water", 2, 1)
-    water.resource = {"kind": "restore", "stat": "thirst", "amount": 100}
-    for e in (npc, water):
-        world.entities[e.id] = e
+    world.entities[npc.id] = npc
+    world.put(2, 1, 1, floor="grass", connector=make("well", "water_1"))
 
     # synchronous think: perceiving the (novel) water triggers a decide inline,
     # and the returned plan executes through the same advance_goals as the game
@@ -337,12 +426,12 @@ def test_engine_headless():
     assert prov.calls, "novel perception must trigger a synchronous think"
     assert npc.stats["thirst"] > 95.0, f"the planned drink executed (thirst={npc.stats['thirst']})"
     fam = engine.brains["npc_1"]._familiar_types()
-    assert "water" in fam, "the outcome memory makes water familiar"
+    assert "well" in fam, "the outcome memory makes the well familiar"
     # and the reward pipeline sees the discovery
     assert note_novelty(npc, engine.brains["npc_1"], {}) == 1
 
     # death mid-run: the engine reaps, the survivor keeps stepping
-    doomed = Entity("npc_2", "npc_2", "npc", 5, 5)
+    doomed = Entity("npc_2", "npc_2", "npc", 5, 5, 1.0)
     doomed.stats["health"], doomed.stats["hunger"] = 0.5, 0.0
     world.entities[doomed.id] = doomed
     engine.npcs.append(doomed)
@@ -375,7 +464,7 @@ def test_engine_headless():
     j.close()
     rec = [json.loads(l) for l in open(path, encoding="utf-8")]
     types = {r["type"] for r in rec}
-    assert {"goals_added", "resource_use", "death"} <= types, types
+    assert {"goals_added", "effects", "death"} <= types, types
 
 
 def test_episode_runner():
@@ -461,7 +550,7 @@ def test_felt_memories():
     # produce merged felt runs, not a flood of records
     from sim.world import World
     world = World(6, 6)
-    npc = Entity("npc_1", "npc_1", "npc", 1, 1)
+    npc = Entity("npc_1", "npc_1", "npc", 1, 1, 1.0)
     world.entities[npc.id] = npc
     j = Journal(os.path.join(tempfile.mkdtemp(), "felt.jsonl"), "felt")
     eng = Engine(world, [npc], {"npc_1": Brain("npc_1", FakeProvider([]))}, j)
@@ -477,7 +566,7 @@ def test_felt_memories():
 
 def test_curiosity():
     b = Brain("npc_1", object())
-    snap = {"t": 1.0, "self_id": "npc_1", "self_pos": [5, 5],
+    snap = {"t": 1.0, "self_id": "npc_1", "self_pos": [5, 5, 1.0],
             "visible_entities": [{"id": "bush_1", "type": "berry_bush", "pos": [6, 5]}],
             "drives": {"survival": 0.75, "curiosity": 0.25}, "recent_perceptions": []}
     # familiarity is a plain fact on each visible thing, derived from memory
@@ -627,7 +716,7 @@ def test_recall_action_loop():
     ])
     brain = Brain("npc_1", prov, memory_k=3)
     brain.record_events([{"kind": "entity_entered", "id": "bear_1", "pos": [12, 5], "etype": "bear"}], 5.0, [10, 5])
-    snap = {"t": 8.0, "self_id": "npc_1", "self_pos": [10, 5], "hp": 100,
+    snap = {"t": 8.0, "self_id": "npc_1", "self_pos": [10, 5, 1.0], "hp": 100,
             "visible_entities": [], "recent_perceptions": []}
     goals = brain.decide(snap)
     assert goals[0].actions[0]["action"] == "say", goals
@@ -639,7 +728,7 @@ def test_recall_action_loop():
 def test_recall_cap():
     prov = FakeProvider([{"action": "recall", "params": {"query": "x"}}] * (MAX_RECALLS + 3))
     brain = Brain("npc_1", prov, memory_k=2)
-    snap = {"t": 1.0, "self_pos": [0, 0], "hp": 100, "visible_entities": [], "recent_perceptions": []}
+    snap = {"t": 1.0, "self_pos": [0, 0, 1.0], "hp": 100, "visible_entities": [], "recent_perceptions": []}
     goals = brain.decide(snap)
     assert goals == [], goals                      # exhausted recall -> empty agenda
     assert len(prov.calls) == MAX_RECALLS + 2, "recall loop is bounded"
@@ -654,8 +743,8 @@ def test_look_action_loop():
                     "importance": 2, "reason": "head to the remembered clearing"}]},
     ])
     brain = Brain("npc_1", prov)
-    brain.spatial.observe_many([((x, y), "floor") for x in range(39, 42) for y in range(39, 42)])
-    snap = {"t": 1.0, "self_id": "npc_1", "self_pos": [1, 1], "hp": 100,
+    brain.spatial.observe_many([((x, y, 1), "floor") for x in range(39, 42) for y in range(39, 42)])
+    snap = {"t": 1.0, "self_id": "npc_1", "self_pos": [1, 1, 1.0], "hp": 100,
             "vision_radius": 8, "visible_entities": [], "recent_perceptions": []}
     goals = brain.decide(snap)
     assert goals and goals[0].actions[0]["params"] == {"x": 41, "y": 40}, goals
@@ -768,7 +857,7 @@ def test_recall_surfaces_memories():
     snap = {
         "t": 110.0,
         "self_id": "npc_x",
-        "self_pos": [2, 3],
+        "self_pos": [2, 3, 1.0],
         "hp": 100,
         "visible_entities": [{"id": "player", "pos": [1, 1]}],
         "recent_perceptions": [{"kind": "entity_entered", "id": "player"}],
@@ -928,6 +1017,7 @@ def test_goal_infrastructure():
 
 def main() -> None:
     test_movement_and_interact()
+    test_layers()
     test_pathing()
     test_perception()
     test_spatial_memory()

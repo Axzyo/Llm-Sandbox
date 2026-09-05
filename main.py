@@ -16,7 +16,7 @@ from sim.goals import goal_from_intent
 from sim.journal import Journal
 from sim.terrain import HEIGHT, SPAWNS, WIDTH, build_test_map, place_resources
 from sim.provider import OllamaProvider
-from sim.world import chebyshev
+from sim.world import chebyshev, level_of
 
 TILE_SIZE = 32
 
@@ -29,9 +29,13 @@ KEY_DIRS = [
 
 COLOR_FLOOR = (38, 42, 50)
 COLOR_WALL = (96, 104, 118)
+COLOR_STEP = (70, 78, 92)          # a part-height connector on this level
+COLOR_DROP = (18, 20, 26)          # nothing to stand on at this level
+COLOR_TILE = {"floor": COLOR_FLOOR, "wall": COLOR_WALL, "step": COLOR_STEP, "drop": COLOR_DROP}
 COLOR_GRID = (48, 53, 63)
 COLOR_PLAYER = (90, 180, 255)
 COLOR_NPC = (255, 170, 70)
+COLOR_OBJECT = (110, 170, 110)      # a named connector object (bush, well)
 COLOR_TEXT = (225, 228, 235)
 COLOR_CHAT = (255, 236, 180)
 COLOR_TARGET = (255, 240, 120)
@@ -109,7 +113,7 @@ def main() -> None:
     run_id = time.strftime("r_%Y%m%d_%H%M%S")
     journal = Journal(os.path.join("runs", f"{run_id}.jsonl"), run_id)
     journal.log("system", "spawn", model=cfg["model"],
-                entities={e.id: list(e.pos) for e in world.entities.values()})
+                entities={t.id: list(t.pos) for t in world.things()})
 
     provider = OllamaProvider(
         cfg["ollama_url"], cfg["model"], cfg["temperature"], cfg["num_predict"],
@@ -144,8 +148,8 @@ def main() -> None:
     script: list = []
     intent_script: list = []
     if args.autotest == "talk":
-        occupant = world.entity_at(18, 9)
-        assert not world.blocked(18, 9) and (occupant is None or occupant.id == "player")
+        occupant = world.entity_at(18, 9, player.level)
+        assert world.tile_type(18, 9, player.level) == "floor" and (occupant is None or occupant.id == "player")
         player.x, player.y = 18, 9   # within earshot of npc_1 at (19, 9)
         script = build_autotest_script()
         print(f"AUTOTEST talk: player at {(player.x, player.y)}, npc_1 at {spawns['npc_1']}", flush=True)
@@ -189,7 +193,7 @@ def main() -> None:
                     running = False
             elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1 and (pygame.key.get_mods() & pygame.KMOD_CTRL):
                 tx, ty = ev.pos[0] // TILE_SIZE, ev.pos[1] // TILE_SIZE
-                ent = world.entity_at(tx, ty)
+                ent = world.entity_at(tx, ty, player.level)
                 if ent is not None and ent.kind == "npc":
                     inspect_npc_id = None if inspect_npc_id == ent.id else ent.id
             elif ev.type == pygame.KEYDOWN and ev.key == pygame.K_RETURN:
@@ -211,7 +215,7 @@ def main() -> None:
 
         keys = pygame.key.get_pressed()
         mx, my = pygame.mouse.get_pos()
-        hovered = world.entity_at(mx // TILE_SIZE, my // TILE_SIZE)
+        hovered = world.thing_at(mx // TILE_SIZE, my // TILE_SIZE, player.level)
         player.target = hovered.id if hovered is not None and hovered.id != "player" else None
 
         held = next((name for key, name in KEY_DIRS if keys[key]), None)
@@ -244,30 +248,31 @@ def main() -> None:
             journal.log("system", "autotest_result", result=outcome)
             running = False
 
+        # the view is the player's level: what an entity standing there perceives
         screen.fill(COLOR_FLOOR)
         for ty in range(HEIGHT):
             for tx in range(WIDTH):
                 rect = pygame.Rect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE)
-                if world.is_wall(tx, ty):
-                    pygame.draw.rect(screen, COLOR_WALL, rect)
-                else:
-                    pygame.draw.rect(screen, COLOR_FLOOR, rect)
+                ttype = world.tile_type(tx, ty, player.level)
+                pygame.draw.rect(screen, COLOR_TILE[ttype], rect)
+                if ttype != "wall":
                     pygame.draw.rect(screen, COLOR_GRID, rect, 1)
-        for e in world.entities.values():
-            rect = pygame.Rect(e.x * TILE_SIZE + 4, e.y * TILE_SIZE + 4, TILE_SIZE - 8, TILE_SIZE - 8)
-            color = COLOR_PLAYER if e.kind == "player" else COLOR_NPC
+        for t in world.things():
+            if level_of(t.z) != player.level:
+                continue
+            rect = pygame.Rect(t.x * TILE_SIZE + 4, t.y * TILE_SIZE + 4, TILE_SIZE - 8, TILE_SIZE - 8)
+            color = COLOR_PLAYER if t.kind == "player" else (COLOR_NPC if t.kind == "npc" else COLOR_OBJECT)
             pygame.draw.rect(screen, color, rect, border_radius=6)
-            if e.id == player.target and e.kind != "player":
+            if t.id == player.target and t.kind != "player":
                 pygame.draw.rect(screen, COLOR_TARGET, rect.inflate(6, 6), 2, border_radius=8)
-            label = font.render(e.name, True, COLOR_TEXT)
-            screen.blit(label, (e.x * TILE_SIZE + 2, (e.y + 1) * TILE_SIZE - 12))
+            label = font.render(t.id, True, COLOR_TEXT)
+            screen.blit(label, (t.x * TILE_SIZE + 2, (t.y + 1) * TILE_SIZE - 12))
 
         target_info = "target: none"
         if player.target is not None:
-            tgt = world.entities.get(player.target)
             chk = evaluate_interact(world, player, player.target)
             target_info = (
-                f"target: {tgt.id} | dist:{chk['distance']} "
+                f"target: {player.target} | dist:{chk['distance']} "
                 f"range:{'ok' if chk['range_ok'] else 'FAIL'} los:{'ok' if chk['los_ok'] else 'BLOCKED'}"
             )
 

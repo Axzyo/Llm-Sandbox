@@ -12,8 +12,8 @@ from .actions import attempt_move, evaluate_interact
 from .journal import Journal
 from .needs import tick_needs
 from .pathing import next_step
-from .perception import PerceptionTracker, visible_entities, visible_tiles
-from .terrain import tick_resources, interact_with, use_item
+from .perception import PerceptionTracker, visible_things, visible_tiles
+from .terrain import describe_effects, interact_with, tick_connectors, use_item
 from .world import chebyshev
 
 PERCEPTION_INTERVAL = 0.2
@@ -25,7 +25,7 @@ def build_snapshot(npc, world, pending_events: list, now_t: float) -> dict:
     return {
         "t": round(now_t, 2),
         "self_id": npc.id,
-        "self_pos": [npc.x, npc.y],
+        "self_pos": [npc.x, npc.y, npc.z],
         "health": round(npc.stats["health"]),    # three survival needs, 0 (empty) .. 100 (full)
         "hunger": round(npc.stats["hunger"]),
         "thirst": round(npc.stats["thirst"]),
@@ -33,7 +33,7 @@ def build_snapshot(npc, world, pending_events: list, now_t: float) -> dict:
         "vision_radius": npc.properties["vision_radius"],
         "hearing_radius": npc.properties["hearing_radius"],
         "interact_range": npc.properties["interact_range"],
-        "visible_entities": [{"id": e.id, "type": e.kind, "pos": [e.x, e.y]} for e in visible_entities(world, npc)],
+        "visible_entities": [{"id": t.id, "type": t.kind, "pos": [t.x, t.y, t.z]} for t in visible_things(world, npc)],
         "recent_perceptions": pending_events[-12:],
     }
 
@@ -41,7 +41,7 @@ def build_snapshot(npc, world, pending_events: list, now_t: float) -> dict:
 def remember_action(brains: dict, npc, event: dict, sim_t: float) -> None:
     """Write a 'did' memory of a resolved action outcome, through the same pipeline."""
     if ENABLE_NPC_MEMORY and npc.id in brains:
-        brains[npc.id].record_events([event], sim_t, location=[npc.x, npc.y])
+        brains[npc.id].record_events([event], sim_t, location=[npc.x, npc.y, npc.z])
 
 
 def broadcast(world, speaker, text: str, brains: dict, pending_obs: dict, sim_t: float,
@@ -59,9 +59,9 @@ def broadcast(world, speaker, text: str, brains: dict, pending_obs: dict, sim_t:
         if chebyshev(speaker.x, speaker.y, e.x, e.y) > e.properties["hearing_radius"]:
             continue
         event = {"kind": "heard_say", "speaker": speaker.id, "speaker_type": speaker.kind,
-                 "speaker_pos": [speaker.x, speaker.y], "text": text}
+                 "speaker_pos": [speaker.x, speaker.y, speaker.z], "text": text}
         if ENABLE_NPC_MEMORY and e.id in brains:
-            brains[e.id].record_events([event], sim_t, location=[e.x, e.y])
+            brains[e.id].record_events([event], sim_t, location=[e.x, e.y, e.z])
             pending_obs[e.id].append(event)
         elif e.id == "player":
             hear_log.append(f"{speaker.id}: {text}")
@@ -74,20 +74,17 @@ def enact_instant(world, npc, action_obj, journal: Journal, sim_t: float, brains
     params = action_obj.get("params") or {}
     if action == "interact":
         res = evaluate_interact(world, npc, params.get("target"))
-        target = world.entities.get(res.get("target"))
-        tpos = [target.x, target.y] if target is not None else None
+        target = world.thing(res.get("target")) if res.get("target") else None
+        tpos = [target.x, target.y, target.z] if target is not None else None
         ttype = target.kind if target is not None else "entity"
         if res["ok"]:
             journal.log(npc.id, "action_complete", action="interact", **res)
-            # a resource target's data decides what interacting does (drink / pick)
+            # a connector target's tags decide what interacting does (drink / pick / ...)
             eff = interact_with(target, npc, sim_t) if target is not None else None
             effect = None
             if eff is not None:
-                journal.log(npc.id, "resource_use", target=target.id, **eff)
-                if eff["did"] == "drink":
-                    effect = f"{eff['stat']} +{eff['gained']:g}"
-                elif eff["did"] == "harvest":
-                    effect = f"picked a {eff['yields']}" if eff["ok"] else "nothing to pick"
+                journal.log(npc.id, "effects", target=target.id, **eff)
+                effect = describe_effects(eff["effects"])
             remember_action(brains, npc, {"kind": "did_interact", "target": res.get("target"),
                                           "target_type": ttype, "target_pos": tpos,
                                           "outcome": "ok", "effect": effect}, sim_t)
@@ -100,12 +97,12 @@ def enact_instant(world, npc, action_obj, journal: Journal, sim_t: float, brains
     if action == "inventory":
         op, item = params.get("op"), params.get("item")
         if item in npc.inventory:
-            # 'use' applies the item's own effect (eat a berry -> hunger); the item
-            # is consumed. drop/arrange have no effect yet.
+            # 'use' fires the item's own tags (eat a berry -> hunger); the item is
+            # consumed. drop/arrange have no effect yet.
             used = use_item(npc, item) if op == "use" else None
             journal.log(npc.id, "action_complete", action="inventory", op=op, item=item,
                         **(used or {}))
-            effect = f"{used['stat']} +{used['gained']:g}" if used else None
+            effect = describe_effects(used["effects"]) if used else None
             remember_action(brains, npc, {"kind": "did_inventory", "op": op, "item": item,
                                           "outcome": "ok", "effect": effect}, sim_t)
             return "done"
@@ -126,14 +123,14 @@ def progress_move(world, npc, goal, action_obj, journal: Journal, sim_t: float, 
     params = action_obj.get("params") or {}
     tx, ty = params.get("x"), params.get("y")
     if (npc.x, npc.y) == (tx, ty):
-        remember_action(brains, npc, {"kind": "did_move", "pos": [tx, ty], "outcome": "arrived"}, sim_t)
+        remember_action(brains, npc, {"kind": "did_move", "pos": [npc.x, npc.y, npc.z], "outcome": "arrived"}, sim_t)
         return "done"
     if goal.started_step != goal.step:
         goal.started_step = goal.step
         journal.log(npc.id, "action_start", action="move", to=[tx, ty], source="goal")
     if sim_t < npc.next_move_at:
         return "active"
-    step = next_step(world, (npc.x, npc.y), (tx, ty))
+    step = next_step(world, npc, (tx, ty))
     if step is None:
         journal.log(npc.id, "action_failed", action="move", reason="unreachable", to=[tx, ty])
         remember_action(brains, npc, {"kind": "did_move", "pos": [tx, ty], "outcome": "unreachable"}, sim_t)
@@ -187,7 +184,7 @@ def reap_dead(npcs: list, npcs_by_id: dict, world, journal: Journal, sim_t: floa
     dead = [n for n in npcs if n.stats["health"] <= 0.0]
     for npc in dead:
         cause = death_cause(npc)
-        journal.log(npc.id, "death", pos=[npc.x, npc.y], cause=cause)
+        journal.log(npc.id, "death", pos=[npc.x, npc.y, npc.z], cause=cause)
         print(f"[{sim_t:7.1f}] {npc.id} died of {cause}", flush=True)
         world.entities.pop(npc.id, None)
         npcs_by_id.pop(npc.id, None)
@@ -226,7 +223,7 @@ class Engine:
         # survival needs drain in real time -> the pressure NPCs perceive and weigh
         for npc in self.npcs:
             tick_needs(npc, dt)
-        tick_resources(self.world, self.sim_t)   # regrow berries whose timer elapsed
+        tick_connectors(self.world, self.sim_t)  # timed tags come due (an empty bush regrows)
         died = reap_dead(self.npcs, self.npcs_by_id, self.world, self.journal, self.sim_t)
         if self.sim_t >= self.next_perceive_at:
             self.next_perceive_at = self.sim_t + PERCEPTION_INTERVAL
@@ -252,15 +249,15 @@ class Engine:
                 # carries the current numbers); memory is what gives them a history.
                 felt = self._sense_stats(npc)
                 if felt:
-                    brain.record_events(felt, self.sim_t, location=[npc.x, npc.y])
+                    brain.record_events(felt, self.sim_t, location=[npc.x, npc.y, npc.z])
             events = self.trackers[npc.id].update(self.world, npc)
             if events:
                 self.journal.log(npc.id, "perception", events=events)
                 if ENABLE_NPC_MEMORY and brain is not None:
-                    brain.record_events(events, self.sim_t, location=[npc.x, npc.y])
+                    brain.record_events(events, self.sim_t, location=[npc.x, npc.y, npc.z])
                 self.pending_obs[npc.id].extend(events)
                 for ev in events:
-                    if ev["kind"] in ("entity_entered", "entity_moved"):
+                    if ev["kind"] in ("entity_entered", "entity_moved", "entity_changed"):
                         npc.target = ev["id"]
                     elif ev["kind"] == "entity_left" and npc.target == ev["id"]:
                         npc.target = None

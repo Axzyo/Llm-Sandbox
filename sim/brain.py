@@ -4,6 +4,7 @@ from .consolidation import Consolidator
 from .goals import DEFAULT_IMPORTANCE, Goal
 from .memory import MemoryStore, index_tokens, tokenize
 from .spatial import SpatialMemory
+from .world import level_of
 
 AGENT_MARKER = "autonomous agent"
 VALID_MEM_TYPES = ("observation", "action_result")
@@ -18,7 +19,7 @@ def _merge_memories(base: list, more: list) -> list:
     seen = {m["id"] for m in base}
     return base + [m for m in more if m["id"] not in seen]
 
-SYSTEM_TEMPLATE = """You are __NAME__, an autonomous agent in a 2D grid world.
+SYSTEM_TEMPLATE = """You are __NAME__, an autonomous agent in a grid world of stacked levels.
 
 You have three needs — health, hunger, and thirst — each from 0 (empty) to 100 (full). Hunger and thirst fall on their own over time. If either reaches 0 your health drains; while both are well-supplied your health slowly recovers. At 0 health you die. Your state reports their values.
 
@@ -47,10 +48,10 @@ Rules:
 - A wait holds until your next decision delivers new goals; those end it.
 - Speech is a broadcast: everyone within earshot hears it.
 - inventory manages items you already carry (use, drop, arrange); taking an item off the ground is an interact with it.
-- Coordinates are tile positions you could stand on.
+- Positions are [x, y, z]: x and y name a column of the grid, z the height you stand at; the level you are on is the whole part of z. A move names a column by x and y and takes you to whatever you can stand on there.
 - Interacting requires the target within your interact range and line of sight.
 - You perceive through line of sight only; unseen things do not exist for you yet.
-- You are shown a remembered map around yourself and around the locations your recalled memories refer to. Coordinates you have never seen are blank/unknown — places you have not been yet.
+- You are shown a remembered map of your level around yourself and around the locations your recalled memories refer to. Coordinates you have never seen are blank/unknown — places you have not been yet.
 - recall returns matching memories, then you choose again. look returns the remembered terrain around a coordinate (even where nothing happened), then you choose again."""
 
 
@@ -225,7 +226,7 @@ def memories_from_event(ev, observer_loc, now: float, self_id: str) -> list:
     if not isinstance(ev, dict):
         return []
     kind = ev.get("kind")
-    if kind in ("entity_entered", "entity_moved"):
+    if kind in ("entity_entered", "entity_moved", "entity_changed"):
         pos = ev.get("pos")
         subj = {"kind": "entity", "ref": ev.get("id"), "type": ev.get("etype", "entity"),
                 "pos": list(pos) if pos else None, "info": {}}
@@ -352,7 +353,7 @@ class Brain:
         self.pending_think = False   # set when a novel memory forms; consumed by the think loop
 
     def perceive_tiles(self, seen) -> int:
-        """Fold seen ((x,y), type) tiles into spatial memory (reinforcing them).
+        """Fold seen ((x,y,level), type) tiles into spatial memory (reinforcing them).
         Newly discovered geometry is novel -> think now, like a novel episodic memory."""
         new = self.spatial.observe_many(seen)
         if new:
@@ -458,17 +459,23 @@ class Brain:
         """Rendered remembered-map windows: one around self (at vision radius) and
         one around each distinct location the recalled memories refer to or the
         agent explicitly looked at. Anchors already covered by a rendered window are
-        skipped so the same terrain isn't drawn twice."""
+        skipped so the same terrain isn't drawn twice. A location without a height
+        (a move target, a look) is taken to be on the agent's own level."""
         self_pos = snapshot.get("self_pos")
         if self_pos is None:
             return []
-        me = (self_pos[0], self_pos[1])
+        my_level = level_of(self_pos[2])
+        me = (self_pos[0], self_pos[1], my_level)
         vision = snapshot.get("vision_radius", 8)
         blocks = []
         rendered = []  # (center, radius) already drawn
 
+        def anchor(loc):
+            return (loc[0], loc[1], level_of(loc[2]) if len(loc) > 2 else my_level)
+
         def covered(a):
-            return any(max(abs(a[0] - cx), abs(a[1] - cy)) <= rad for (cx, cy), rad in rendered)
+            return any(a[2] == cz and max(abs(a[0] - cx), abs(a[1] - cy)) <= rad
+                       for (cx, cy, cz), rad in rendered)
 
         m = self.spatial.render_local(me, vision, marker=me)
         if m:
@@ -479,8 +486,8 @@ class Brain:
         for mem in memories:
             loc = (mem.get("subject") or {}).get("pos") or mem.get("observer_loc")
             if loc:
-                anchors.append((loc[0], loc[1]))
-        anchors += [(a[0], a[1]) for a in extra_anchors]
+                anchors.append(anchor(loc))
+        anchors += [anchor(a) for a in extra_anchors]
         for a in anchors:
             if covered(a):
                 continue

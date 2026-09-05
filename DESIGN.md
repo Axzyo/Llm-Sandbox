@@ -1,6 +1,6 @@
 # LLM NPC Sandbox — Design
 
-Sandbox for testing LLM-powered NPCs in a real-time 2D grid world. Goal: human-like behavior emerging from a minimal substrate — perception, memory, and drives — with **zero behavioral hardcoding**.
+Sandbox for testing LLM-powered NPCs in a real-time grid world of stacked levels. Goal: human-like behavior emerging from a minimal substrate — perception, memory, and drives — with **zero behavioral hardcoding**.
 
 ## Core principles
 
@@ -11,9 +11,14 @@ Sandbox for testing LLM-powered NPCs in a real-time 2D grid world. Goal: human-l
 
 ## World
 
-- Discrete 2D grid of tiles. Tiles: floor or wall (walls block movement **and** line of sight).
-- Real-time loop. Entities occupy one tile each; one entity per tile.
-- Objects may exist on tiles (interactable externals). Defined by data, never special-cased in code.
+- A stack of levels, each a grid of cells (`sim/world.py`). A cell at `(x, y, level)` has two layers:
+  - **floor layer** — a surface at height `level`, named by material (`grass`, `stone`), or none;
+  - **connector layer** — one object in the slab between `level` and `level + 1` (dirt, a wall, a table, a stair step), filling a vertical span `[bottom, top)` of that slab in slab units. A full block is `0..1`, a table `0..0.5`, the upper step of a staircase `0.5..1`.
+- Heights are continuous. An entity stands at height `z` on a *surface* (a floor, or the top of a connector); its level is `floor(z)`. The top of a full block on level L is a surface at L + 1, so the ground is a level of dirt blocks with grass floor tiles on top: remove the grass and the dirt top still holds you up; remove the dirt too and the column drops a level.
+- Movement: stepping into a column lands you on the highest surface there that is at most your `climb` above you and has `height` of clear space over it. Dropping any distance is allowed. Sight: a horizontal line at mid-body height, blocked by any connector span covering that height (you see over a table, not through a wall). No code knows what a "table" or a "stair" is; only spans and heights.
+- Real-time loop. One entity per column per level.
+- A connector has a **type**, and a type is data (`sim/terrain.py::CONNECTORS`): a default span plus a list of **tags**. Tags are the only place a type's properties live. Each tag is one record `{on, do, ...payload}`: `on` is the trigger (`interact`, `use`, `time`), `do` the effect (`restore` a stat, `give` an item, `become` another type). A bush is `give berry` + `become empty_bush` on interact; an `empty_bush` is `become bush` after a timed wait; a well is `restore thirst`. Items are tagged the same way. No code special-cases a type name; `apply_tags` reads the records.
+- Placed objects (a bush, a well) are *named* connectors (they carry an `id`). The world exposes entities and named objects alike as "things" (`World.things()` / `thing(id)`), so perception and `interact` treat a bush like any other body, and a thing changing type (a bush picked bare) is perceived like a move. Bulk connectors (dirt, walls) stay anonymous and only show on the map.
 
 ## Entities & attributes
 
@@ -21,10 +26,12 @@ Every entity (player and NPCs) is an instance of the same structure. Perceptual/
 
 | Attribute         | Default      | Notes                              |
 |-------------------|--------------|------------------------------------|
-| `pos`             | —            | current tile                       |
+| `pos`             | —            | `(x, y, z)`: column + standing height |
 | `hp`              | 100          |                                    |
 | `vision_radius`   | 8            | LOS-based                          |
 | `interact_range`  | 1 (adjacent) | chebyshev distance                 |
+| `height`          | 1.0 slab     | body height; must fit under overheads |
+| `climb`           | 0.5 slab     | tallest step up in one move        |
 | `move_interval`   | 150 ms/tile  | motor execution speed              |
 | `think_interval`  | 3 s          | idle decision cadence (NPCs)       |
 | `inventory`       | []           | items usable via `use`             |
@@ -33,7 +40,7 @@ Every entity (player and NPCs) is an instance of the same structure. Perceptual/
 
 ## Perception
 
-- Each tick, compute what each NPC can see: entities/objects within `vision_radius`, unobstructed by walls (Bresenham LOS).
+- Each tick, compute what each NPC can see: entities/objects within `vision_radius`, unobstructed at eye height (Bresenham LOS over connector spans).
 - **Diffed:** only changes generate events ("npc_2 entered view", "npc_2 moved", "object X appeared"). Prevents prompt noise and meaningless memories.
 - Perception events feed two consumers: immediate interrupts (see LLM loop) and memory writes.
 

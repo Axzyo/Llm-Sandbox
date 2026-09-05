@@ -31,7 +31,7 @@ from sim.entities import Entity                                          # noqa:
 from sim.journal import Journal                                          # noqa: E402
 from sim.provider import OllamaProvider                                  # noqa: E402
 from sim.reward import DISCOUNT_PER_S, note_novelty, reward, validate_drives  # noqa: E402
-from sim.terrain import _free_floor_tiles, build_test_map, place_resources  # noqa: E402
+from sim.terrain import build_test_map, free_standing_tiles, place_resources  # noqa: E402
 
 # Drive-profile spread the ONE policy must generalize over. Weights are shares
 # of one whole (they must sum to 1 — see sim/reward.py), so the sampler picks
@@ -74,14 +74,13 @@ def run_episode(ep_id: str, path: str, provider, cfg: dict, rng: random.Random,
                 n_npcs: int, budget: float, dt: float) -> list:
     """One headless episode. Returns per-NPC score rows."""
     world, _ = build_test_map()
-    tiles = _free_floor_tiles(world, taken=set())
+    tiles = free_standing_tiles(world, taken=set())
     rng.shuffle(tiles)
 
     journal = Journal(path, ep_id)
     npcs, brains = [], {}
     for i in range(1, n_npcs + 1):
-        x, y = tiles.pop()
-        npc = Entity(f"npc_{i}", f"npc_{i}", "npc", x, y)
+        npc = Entity(f"npc_{i}", f"npc_{i}", "npc", *tiles.pop())
         npc.properties["interact_range"] = int(cfg["interact_range"])
         npc.drives = sample_drives(rng)
         validate_drives(npc.drives)      # the fairness contract: weights are shares of 1
@@ -93,12 +92,12 @@ def run_episode(ep_id: str, path: str, provider, cfg: dict, rng: random.Random,
     # spawn->water distance per NPC: map luck dominates survival (0% beyond 15
     # tiles measured), so score rows carry it and reports can stratify — maps
     # stay fully random, comparisons stop measuring the dealer.
-    water = next((e for e in placed if e.kind == "water"), None)
+    water = next((o for o in placed if o.kind == "well"), None)
     water_dist = {n.id: (max(abs(n.x - water.x), abs(n.y - water.y)) if water else None)
                   for n in npcs}
 
     journal.log("system", "spawn", model=getattr(provider, "model", "?"),
-                entities={e.id: list(e.pos) for e in world.entities.values()},
+                entities={t.id: list(t.pos) for t in world.things()},
                 drives={n.id: n.drives for n in npcs})
 
     engine = Engine(world, npcs, brains, journal)   # dispatch_think=None -> think inline

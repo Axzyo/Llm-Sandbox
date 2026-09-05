@@ -2,10 +2,11 @@
 
 Geometry is learned through perception, but a remembered occupancy grid would
 swamp the small episodic store (one glance reveals ~289 tiles; recall returns
-only k). So tiles live in their own per-entity layer: what floor/wall the NPC has
-seen, at absolute coordinates. Unseen tiles are simply unknown. Rendered into the
-think prompt as a local map so the agent picks move destinations from geometry it
-remembers, never from tiles it has never seen.
+only k). So tiles live in their own per-entity layer: what the NPC has seen at each
+column of each level, at absolute (x, y, level) coordinates, as a shape class
+(see World.tile_type). Unseen tiles are simply unknown. Rendered into the think
+prompt as a local map of one level so the agent picks move destinations from
+geometry it remembers, never from tiles it has never seen.
 
 Forgetting is driven by a per-tile **memorability**, not by distance:
   * seeing a tile reinforces it (recency + frequency), capped;
@@ -29,11 +30,13 @@ GOAL_RANGE = 8             # tiles within this chebyshev distance of a goal are 
 # The memorability floor AT a goal location is that goal's own `importance` (0-10),
 # fading to 0 at GOAL_RANGE — no separate strength constant; important goals stick harder.
 
+GLYPHS = {"wall": "#", "step": "=", "floor": ".", "drop": "v"}   # World.tile_type -> map glyph
+
 
 class SpatialMemory:
     def __init__(self, owner_id: str, max_tiles: int | None = MAX_TILES):
         self.owner_id = owner_id
-        self.tiles: dict = {}          # (x, y) -> {"type": "floor"|"wall", "memorability": float}
+        self.tiles: dict = {}          # (x, y, level) -> {"type": <tile_type>, "memorability": float}
         self.max_tiles = max_tiles     # cap backstop; None disables it
 
     def __len__(self) -> int:
@@ -49,7 +52,7 @@ class SpatialMemory:
         self._evict_to_cap()
 
     def observe_many(self, seen) -> int:
-        """Record a batch of ((x,y), type). Returns how many were newly discovered."""
+        """Record a batch of ((x,y,level), type). Returns how many were newly discovered."""
         new = 0
         for coord, ttype in seen:
             cell = self.tiles.get(coord)
@@ -119,29 +122,32 @@ class SpatialMemory:
         return excess
 
     def render_local(self, center, radius: int, marker=None) -> str | None:
-        """A coordinate-framed local map centered on `center`, or None if nothing
-        nearby is remembered yet. `marker` is the tile to draw as '@' (the NPC's
-        real position); it defaults to the center for a self-centered view, and for
-        a window centered elsewhere (a memory/look location) '@' only appears if the
-        NPC actually stands inside it. Columns run x low->high left->right; each row
-        is labelled by its y. Glyphs: '@' you, '#' wall, '.' floor, ' ' unseen."""
-        cx, cy = center
-        mark = tuple(marker) if marker is not None else (cx, cy)
+        """A coordinate-framed local map of one level, centered on `center`
+        (x, y, level), or None if nothing nearby on that level is remembered yet.
+        `marker` is the (x, y, level) to draw as '@' (the NPC's real position); it
+        defaults to the center for a self-centered view, and for a window centered
+        elsewhere (a memory/look location) '@' only appears if the NPC actually
+        stands inside it. Columns run x low->high left->right; each row is labelled
+        by its y. Glyphs: '@' you, '#' solid, '=' something part-height, '.' floor,
+        'v' drop, ' ' unseen."""
+        cx, cy, level = center
+        mark = tuple(marker) if marker is not None else tuple(center)
         x0, x1 = cx - radius, cx + radius
         y0, y1 = cy - radius, cy + radius
-        if not any((x, y) in self.tiles
+        if not any((x, y, level) in self.tiles
                    for y in range(y0, y1 + 1) for x in range(x0, x1 + 1)):
             return None
-        header = (f"remembered map - columns are x={x0}..{x1} (left to right), each row "
-                  f"labelled by y; '@'=you '#'=wall '.'=floor ' '=unseen:")
+        header = (f"remembered map of level {level} - columns are x={x0}..{x1} (left to right), "
+                  f"each row labelled by y; '@'=you '#'=solid '='=part-height '.'=floor "
+                  f"'v'=drop ' '=unseen:")
         lines = [header]
         for y in range(y0, y1 + 1):
             row = []
             for x in range(x0, x1 + 1):
-                if (x, y) == mark:
+                if (x, y, level) == mark:
                     row.append("@")
-                elif (x, y) in self.tiles:
-                    row.append("#" if self.tiles[(x, y)]["type"] == "wall" else ".")
+                elif (x, y, level) in self.tiles:
+                    row.append(GLYPHS[self.tiles[(x, y, level)]["type"]])
                 else:
                     row.append(" ")
             lines.append(f"y={y:>3}: " + "".join(row))
