@@ -120,7 +120,7 @@ execution:
 - Talk: right-click an NPC opens conversation; type immediately, `ENTER` sends, `ESC` or **left-click** leaves. Movement locks while chatting.
 - Quit: `ESC` when not in conversation.
 
-Tunables in `config.json`: `interact_range` (applied to all entities at spawn, default 4 tiles), `max_dialogue_turns`, `memory_*`, model settings.
+Tunables in `config.json`: `interact_range` (applied to all entities at spawn, default 4 tiles), `memory_*`, model settings.
 
 ## Targeting
 

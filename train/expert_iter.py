@@ -17,6 +17,7 @@ import collections
 import glob
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -46,6 +47,16 @@ def serve_ollama(adapter: str, merged: str, base: str, model_name: str) -> str:
     # holds its own quantized copy, so an endless loop must not leak it per round
     shutil.rmtree(merged, ignore_errors=True)
     return model_name
+
+
+def next_generation() -> int:
+    """Students are named student-gNN by GENERATION — a monotonic count of
+    trainings ever, read from Ollama itself — so names stay unique and ordered
+    across runs, restarts and re-run rounds (round numbers are bookkeeping)."""
+    out = subprocess.run(["ollama", "list"], capture_output=True, text=True).stdout
+    gens = [int(m.group(1)) for line in out.splitlines()
+            if (m := re.match(r"student-g(\d+)", line))]
+    return max(gens, default=0) + 1
 
 
 def round_aggregates(scores_path: str) -> dict:
@@ -80,7 +91,7 @@ def main():
     ap.add_argument("--start-round", type=int, default=1,
                     help="round number to begin at (resume a partial run without redoing earlier rounds)")
     ap.add_argument("--init-model", default=None,
-                    help="Ollama model to roll out the FIRST round with (e.g. student-r1); "
+                    help="Ollama model to roll out the FIRST round with (e.g. student-g05); "
                          "default gemma4 baseline when starting fresh")
     ap.add_argument("--temperature", type=float, default=None,
                     help="rollout sampling temperature (default: config.json's)")
@@ -141,7 +152,7 @@ def main():
 
         # 3. imitate the winners, then 4. serve the student back through Ollama
         run("train_lora.py", "--data", sft, "--out", adapter, "--base", args.base)
-        prev_model = serve_ollama(adapter, merged, args.base, f"student-r{r}")
+        prev_model = serve_ollama(adapter, merged, args.base, f"student-g{next_generation():02d}")
         r += 1
         if args.rounds and r >= args.start_round + args.rounds:
             break

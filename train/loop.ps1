@@ -32,23 +32,23 @@ function Get-NextRound {
     return 1
 }
 
-function Get-InitModel([int]$nextRound) {
-    $best = $null
+function Get-InitModel {
+    # the newest student generation is always the policy to resume with
+    $best = -1; $name = $null
     try {
         (& ollama list) | ForEach-Object {
-            if ($_ -match "^student-r(\d+)") {
-                $k = [int]$Matches[1]
-                if ($k -lt $nextRound -and ($null -eq $best -or $k -gt $best)) { $best = $k }
+            if ($_ -match "^(student-g(\d+))") {
+                $k = [int]$Matches[2]
+                if ($k -gt $best) { $best = $k; $name = $Matches[1] }
             }
         }
     } catch {}
-    if ($null -ne $best) { return "student-r$best" }
-    return $null
+    return $name
 }
 
 function Get-Plan {
     $next = Get-NextRound
-    $init = Get-InitModel $next
+    $init = Get-InitModel
     $extra = if ($init) { " --init-model $init" } else { "" }
     @{
         Round  = $next

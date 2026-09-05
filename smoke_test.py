@@ -892,6 +892,10 @@ def test_recall_surfaces_memories():
     goals = brain.decide(snap, events=[])
     assert len(goals) == 1 and goals[0].actions == [{"action": "wait"}], "waiting is a decision"
     assert len(brain.store) == 1, "decide must not create memories, only recall"
+    # internal state joins the probe: stat names surface the outcome memories that
+    # mention them, so what relieved a need in the past reaches the prompt unasked
+    probe = brain.query_from({"stats": {"thirst": 12, "hunger": 80}, "visible_entities": []})
+    assert {"thirst", "hunger"} <= probe, probe
     last_user = prov.calls[-1][1]
     assert "player" in last_user and "saw" in last_user, last_user
 
@@ -947,11 +951,13 @@ def test_journal():
     path = os.path.join(tempfile.mkdtemp(), "smoke.jsonl")
     j = Journal(path, "smoke")
     j.log("system", "spawn", entities={"player": [3, 3]})
+    j.clock = lambda: 42.5                # a sim-time source (the Engine wires this up)
     j.log("player", "dialogue_msg", partner="npc_1", text="hi")
     j.close()
     with open(path, encoding="utf-8") as fh:
         records = [json.loads(line) for line in fh]
     assert all({"t", "run", "actor", "type", "payload"} <= set(rec) for rec in records)
+    assert "sim_t" not in records[0] and records[1]["sim_t"] == 42.5, "clocked records carry sim_t"
     print(f"journal records: {len(records)}")
 
 

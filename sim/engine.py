@@ -27,9 +27,7 @@ def build_snapshot(npc, world, pending_events: list, now_t: float) -> dict:
         "t": round(now_t, 2),
         "self_id": npc.id,
         "self_pos": [npc.x, npc.y, npc.z],
-        "health": round(npc.stats["health"]),    # three survival needs, 0 (empty) .. 100 (full)
-        "hunger": round(npc.stats["hunger"]),
-        "thirst": round(npc.stats["thirst"]),
+        "stats": {k: round(v) for k, v in npc.stats.items()},   # needs, 0 (empty) .. 100 (full)
         "drives": npc.drives,                    # personality weights (survival, curiosity, ...)
         "vision_radius": npc.properties["vision_radius"],
         "hearing_radius": npc.properties["hearing_radius"],
@@ -203,6 +201,7 @@ class Engine:
         self.npcs_by_id = {n.id: n for n in npcs}
         self.brains = brains
         self.journal = journal
+        journal.clock = lambda: self.sim_t                # every record carries sim time
         self.dispatch_think = dispatch_think              # None = think inline (headless)
         self.trackers = {n.id: PerceptionTracker(n.id) for n in npcs}
         self.pending_obs = {n.id: [] for n in npcs}
@@ -258,11 +257,6 @@ class Engine:
                 if ENABLE_NPC_MEMORY and brain is not None:
                     brain.record_events(events, self.sim_t, location=[npc.x, npc.y, npc.z])
                 self.pending_obs[npc.id].extend(events)
-                for ev in events:
-                    if ev["kind"] in ("entity_entered", "entity_moved", "entity_changed"):
-                        npc.target = ev["id"]
-                    elif ev["kind"] == "entity_left" and npc.target == ev["id"]:
-                        npc.target = None
 
     def _sense_stats(self, npc) -> list:
         """One felt event per stat whose value — rounded, exactly as the agent

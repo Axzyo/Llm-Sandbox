@@ -13,6 +13,7 @@ class Journal:
         self.run_id = run_id
         self.t0 = time.monotonic()
         self.lock = threading.Lock()
+        self.clock = None      # optional sim-time source; when set, every record carries sim_t
 
     def log(self, actor: str, type_: str, **payload) -> None:
         rec = {
@@ -22,6 +23,8 @@ class Journal:
             "type": type_,
             "payload": payload,
         }
+        if self.clock is not None:
+            rec["sim_t"] = round(self.clock(), 3)
         line = json.dumps(rec) + "\n"
         with self.lock:
             self.fh.write(line)

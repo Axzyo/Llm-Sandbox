@@ -61,16 +61,8 @@ def think_worker(brains: dict, live_text: dict, live_lock: threading.Lock) -> No
                 live_text[_eid] = live_text.get(_eid, "") + delta
 
         # stream the think so a `say` types out live; the broadcast still fires only
-        # on completion, in enact_instant (you don't "hear" half a sentence).
-        # Bridge: the brain returns either a list of goals (multi-goal brain) or a
-        # single validated intent dict (current brain) -> normalize to a goal list.
-        out = brains[eid].decide(payload, events, on_delta=on_delta)
-        if isinstance(out, list):
-            goals = out
-        else:
-            g = goal_from_intent(out)
-            goals = [g] if g is not None else []
-        result_q.put((kind, eid, goals))
+        # on completion, in enact_instant (you don't "hear" half a sentence)
+        result_q.put((kind, eid, brains[eid].decide(payload, events, on_delta=on_delta)))
 
 
 def build_autotest_script() -> list:

@@ -423,6 +423,10 @@ class Brain:
             tokens |= tokenize(e.get("id", ""))
         for ev in snapshot.get("recent_perceptions", []):
             tokens |= tokenize(ev.get("kind", "")) | tokenize(ev.get("id", ""))
+        # internal state probes memory like sights do: a stat's name surfaces the
+        # outcome memories that mention it ("...and thirst +90" — where relief was
+        # found). Deliberate `recall` remains for deeper searches.
+        tokens |= {k for k in snapshot.get("stats", {})}
         return tokens
 
     def _is_novel(self, subject: dict, observer_loc, now_t: float) -> bool:
