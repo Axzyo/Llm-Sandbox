@@ -191,6 +191,16 @@ Known warts (accepted for now):
 - ~~Cross-think-cycle duplicate memories accumulate~~ **Resolved:** write-time consolidation (`sim/consolidation.py`, `MemoryStore.record`). One rule, no per-type policy: two memories fold into one when they share `sense`, at most **one** subject field (kind/ref/type/pos/info) differs, and they are within `gap_s`. Time always spans (`t..t_end`, `count`); a folded record keeps `origin` (its first subject) alongside `subject` (its latest) — first+last, which is all render and retrieval use (the common case is `pos`-only-differs, i.e. a movement `origin->latest`). Intermediate waypoints are intentionally dropped: under this rule every snapshot shares identity, so they add nothing. `observer_loc`/`direction` don't affect the decision.
 - Memories are per-run only (no persistence across app restarts).
 - Interact→memory path unit-tested via fake provider; live verification pending human-at-keyboard run.
+- **REVISIT: `landing` / `climb` semantics.** The step rule (`World.landing`: up by
+  at most `climb`, drop any distance, body must fit) shipped with the layered map
+  but its level placement isn't fully trusted yet — verify entities land on the
+  intended surfaces once vertical content (dig/build, multi-level areas) exists.
+  Not important at current single-level scale.
+- **REVISIT with the same work: sight and targeting are z-blind beyond the eye ray.**
+  Sight is a horizontal line at eye height (floors never block it) and range checks
+  are 2-D, so a second inhabited level would let agents see/interact through solid
+  ground. Move targets are columns, not cells — `(x, y)` reaches any level of that
+  column. All fine while exactly one level is inhabited; fix alongside dig/build.
 
 Verified live (90 s sim): 34/34 LLM calls returned schema-valid actions; cadence ~2.6 s/think warm. Baseline behavior as predicted: survival-only NPCs wander locally, passive until threatened.
 

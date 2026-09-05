@@ -17,6 +17,7 @@ from .terrain import describe_effects, interact_with, tick_connectors, use_item
 from .world import chebyshev
 
 PERCEPTION_INTERVAL = 0.2
+THINK_DEBOUNCE_S = 0.3    # novel memories arriving within this window share one think
 
 ENABLE_NPC_MEMORY = True
 ENABLE_NPC_THINKS = True
@@ -207,6 +208,7 @@ class Engine:
         self.pending_obs = {n.id: [] for n in npcs}
         self.thinking = {n.id: False for n in npcs}
         self.next_think_at = {n.id: 0.0 for n in npcs}
+        self.think_due_at = {n.id: None for n in npcs}    # debounced novelty-think deadline
         self._felt_last: dict = {}                        # npc id -> {stat: last rounded value}
         self.hear_log: list = []
         self.sim_t = 0.0
@@ -279,17 +281,26 @@ class Engine:
 
     def _think(self) -> None:
         for npc in list(self.npcs):
-            if not ENABLE_NPC_THINKS or self.thinking[npc.id]:
-                continue
             brain = self.brains.get(npc.id)
-            if brain is None:
+            if not ENABLE_NPC_THINKS or brain is None:
                 continue
-            # think when something novel happened, or on the idle cadence — internal
-            # pressure (hunger, thirst) is never a perception event, so without the
-            # cadence an agent would starve without ever reconsidering (DESIGN: LLM loop)
-            if not brain.pending_think and self.sim_t < self.next_think_at[npc.id]:
+            # a novel memory asks for a think SOON, not instantly: the flag becomes a
+            # short due-window, so memories that form together (one glance, an outcome
+            # burst, arrivals mid-think) batch into a single call — each one is still
+            # in that think's context, there is just one think
+            if brain.pending_think:
+                brain.pending_think = False
+                if self.think_due_at[npc.id] is None:
+                    self.think_due_at[npc.id] = self.sim_t + THINK_DEBOUNCE_S
+            if self.thinking[npc.id]:
                 continue
-            brain.pending_think = False
+            due = self.think_due_at[npc.id]
+            # the other trigger is the idle cadence — internal pressure (hunger,
+            # thirst) is never a perception event, so without it an agent would
+            # starve without ever reconsidering (DESIGN: LLM loop)
+            if (due is None or self.sim_t < due) and self.sim_t < self.next_think_at[npc.id]:
+                continue
+            self.think_due_at[npc.id] = None
             self.next_think_at[npc.id] = self.sim_t + npc.properties["think_interval"]
             events = list(self.pending_obs[npc.id])
             self.pending_obs[npc.id] = []

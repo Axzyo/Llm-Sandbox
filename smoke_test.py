@@ -509,6 +509,33 @@ def test_episode_runner():
         "cap keeps each bucket's best, never evicting one profile for another"
 
 
+def test_think_debounce():
+    # near-simultaneous novel memories share ONE think: the novelty flag becomes a
+    # short due-window instead of firing a call per memory
+    from sim.world import World
+    world = World(6, 6)
+    npc = Entity("npc_1", "npc_1", "npc", 1, 1, 1.0)
+    world.entities[npc.id] = npc
+    goalset = {"goals": [{"actions": [{"action": "wait"}], "importance": 1}]}
+    prov = FakeProvider([goalset] * 5)
+    j = Journal(os.path.join(tempfile.mkdtemp(), "debounce.jsonl"), "debounce")
+    eng = Engine(world, [npc], {"npc_1": Brain("npc_1", prov)}, j)
+    eng.step(0.1)                        # spawn think fires via cadence
+    base = len(prov.calls)
+    brain = eng.brains["npc_1"]
+    brain.record_events([{"kind": "heard_say", "speaker": "a", "speaker_type": "npc",
+                          "speaker_pos": [2, 2], "text": "one"}], eng.sim_t, [1, 1])
+    eng.step(0.1)                        # inside the window: held, not dispatched
+    brain.record_events([{"kind": "heard_say", "speaker": "b", "speaker_type": "npc",
+                          "speaker_pos": [3, 3], "text": "two"}], eng.sim_t, [1, 1])
+    eng.step(0.1)                        # second novelty joins the same window
+    assert len(prov.calls) == base, "the window holds near-simultaneous novelties"
+    eng.step(0.3)                        # window closed -> exactly one think for both
+    assert len(prov.calls) == base + 1, "one call covers the batch"
+    assert eng.think_due_at["npc_1"] is None
+    j.close()
+
+
 def test_felt_memories():
     # event -> structured 'felt' memory (did = external act, felt = internal state)
     mems = memories_from_event({"kind": "felt_stat", "stat": "thirst", "value": 82,
@@ -1027,6 +1054,7 @@ def main() -> None:
     test_reward()
     test_engine_headless()
     test_episode_runner()
+    test_think_debounce()
     test_felt_memories()
     test_curiosity()
     test_brain_validation()
