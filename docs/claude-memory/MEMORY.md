@@ -1,0 +1,9 @@
+- [Memory system design](memory-system-design.md) — structured records, no salience/embeddings, probe-based recall, per-line dialogue
+- [LLM latency fix](llm-latency-fix.md) — use 127.0.0.1 not localhost (2.3s→0.17s); dialogue streams
+- [Goal schema](goal-schema.md) — LLM emits goal-sets (ordered actions + one per-set importance); decide()→list[Goal]; extract_dataset rewritten for goal-sets
+- [LLM input + spatial memory](input-spatial-memory.md) — strict filter_response; geometry via separate SpatialMemory layer rendered as ASCII map; perception-enrichment still open
+- [DECIDE training + teacher](decide-training-teacher.md) — distill decide() into small student; BLOCKED: even Sonnet is 39/40 `none` — world has no survival stakes yet; add stakes before training; plan in train/TRAINING_PLAN.md
+- [Code-quality rules](code-quality-rules.md) — the six standards in CLAUDE.md enforced on every PR (no hardcoding, reuse, no dead code, no premature complexity, strict validation, tests in sync)
+- [CI/CD pipeline](cicd-pipeline.md) — GitHub ruleset 21782551 gates main (smoke-test + claude-review, 0 approvals); REVIEWER var switch; API-key auth; repo is public
+- [Reward-training pipeline](reward-training-pipeline.md) - expert-iteration build as shipped: engine/reward/runner/LoRA files, TRL 1.12 API, think-cadence fix
+- [Layered map redesign](layered-map-redesign.md) - cells (x,y,level) with floor + connector span shipped; support/collapse, dig/build, falling still to do
