@@ -34,11 +34,14 @@ class Entity:
     kind: str
     x: int
     y: int
-    z: float
-    # Components grouped by what reads them (pass a whole section into a memory,
-    # or one field: entity.stats["hunger"]).
-    stats: dict = field(default_factory=_default_stats)
-    properties: dict = field(default_factory=_default_properties)
+    hp: float = 100.0                 # health, 0..100 (higher is better); ticks with needs
+    hunger: float = 100.0            # 100 = sated, 0 = starving; drains over time
+    thirst: float = 100.0            # 100 = hydrated, 0 = parched; drains over time
+    vision_radius: int = 8
+    hearing_radius: int = 12
+    interact_range: int = 1
+    move_interval: float = 0.15
+    think_interval: float = 3.0       # idle decision cadence (s); novel events think sooner
     inventory: list = field(default_factory=list)
     drives: dict = field(default_factory=lambda: {"survival": 0.75, "curiosity": 0.25})  # personality = weights, sum to 1
     goals: GoalList = field(default_factory=GoalList)

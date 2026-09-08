@@ -30,22 +30,19 @@ from sim.engine import Engine, death_cause                               # noqa:
 from sim.entities import Entity                                          # noqa: E402
 from sim.journal import Journal                                          # noqa: E402
 from sim.provider import OllamaProvider                                  # noqa: E402
-from sim.reward import DISCOUNT_PER_S, note_novelty, reward, validate_drives  # noqa: E402
-from sim.terrain import build_test_map, free_standing_tiles, place_resources  # noqa: E402
+from sim.reward import DISCOUNT_PER_S, note_novelty, reward              # noqa: E402
+from sim.terrain import _free_floor_tiles, build_test_map, place_resources  # noqa: E402
 
-# Drive-profile spread the ONE policy must generalize over. Weights are shares
-# of one whole (they must sum to 1 — see sim/reward.py), so the sampler picks
-# survival's share and curiosity gets the rest. A small grid keeps profiles
-# bucketable for per-profile reward filtering. Even at survival=0 (the crazed
-# scholar who values only discovery) death is not free: reward accrues only
-# while alive, so staying alive remains instrumentally valuable — the agent
-# must live to keep learning.
-SURVIVAL_WEIGHTS = (0.0, 0.25, 0.5, 0.75, 1.0)
+# Drive-profile spread the ONE policy must generalize over. A small grid keeps
+# profiles bucketable for per-profile reward filtering; survival never drops to
+# 0 so dying is always penalized (an unweighted death would be free).
+SURVIVAL_WEIGHTS = (0.5, 1.0)
+CURIOSITY_WEIGHTS = (0.0, 0.5, 1.0)
 
 
 def sample_drives(rng: random.Random) -> dict:
-    survival = rng.choice(SURVIVAL_WEIGHTS)
-    return {"survival": survival, "curiosity": round(1.0 - survival, 2)}
+    return {"survival": rng.choice(SURVIVAL_WEIGHTS),
+            "curiosity": rng.choice(CURIOSITY_WEIGHTS)}
 
 
 def profile_key(drives: dict) -> str:
@@ -54,19 +51,15 @@ def profile_key(drives: dict) -> str:
 
 
 def make_provider(args, cfg):
-    # rollout temperature: --temperature overrides config. Selection-based training
-    # mines behavioral variance for lucky successes, so rollouts often want to run
-    # hotter than the near-deterministic game default.
-    temp = cfg["temperature"] if args.temperature is None else args.temperature
     if args.provider == "transformers":
         from sim.provider import TransformersProvider
         return TransformersProvider(args.model or cfg["model"], adapter=args.adapter,
-                                    temperature=temp, num_predict=cfg["num_predict"])
+                                    temperature=cfg["temperature"], num_predict=cfg["num_predict"])
     if args.provider == "anthropic":
         from sim.provider import AnthropicProvider
         return AnthropicProvider(args.model or "claude-sonnet-5", num_predict=cfg["num_predict"])
     return OllamaProvider(cfg["ollama_url"], args.model or cfg["model"],
-                          temp, cfg["num_predict"],
+                          cfg["temperature"], cfg["num_predict"],
                           keep_alive=cfg.get("keep_alive", "30m"))
 
 
@@ -74,30 +67,24 @@ def run_episode(ep_id: str, path: str, provider, cfg: dict, rng: random.Random,
                 n_npcs: int, budget: float, dt: float) -> list:
     """One headless episode. Returns per-NPC score rows."""
     world, _ = build_test_map()
-    tiles = free_standing_tiles(world, taken=set())
+    tiles = _free_floor_tiles(world, taken=set())
     rng.shuffle(tiles)
 
     journal = Journal(path, ep_id)
     npcs, brains = [], {}
     for i in range(1, n_npcs + 1):
-        npc = Entity(f"npc_{i}", f"npc_{i}", "npc", *tiles.pop())
-        npc.properties["interact_range"] = int(cfg["interact_range"])
+        x, y = tiles.pop()
+        npc = Entity(f"npc_{i}", f"npc_{i}", "npc", x, y)
+        npc.interact_range = int(cfg["interact_range"])
         npc.drives = sample_drives(rng)
-        validate_drives(npc.drives)      # the fairness contract: weights are shares of 1
         npcs.append(npc)
         world.entities[npc.id] = npc
         brains[npc.id] = Brain(npc.id, provider, journal,
                                memory_k=cfg["memory_k"], memory_halflife_s=cfg["memory_halflife_s"])
-    placed = place_resources(world, rng)
-    # spawn->water distance per NPC: map luck dominates survival (0% beyond 15
-    # tiles measured), so score rows carry it and reports can stratify — maps
-    # stay fully random, comparisons stop measuring the dealer.
-    water = next((o for o in placed if o.kind == "well"), None)
-    water_dist = {n.id: (max(abs(n.x - water.x), abs(n.y - water.y)) if water else None)
-                  for n in npcs}
+    place_resources(world, rng)
 
     journal.log("system", "spawn", model=getattr(provider, "model", "?"),
-                entities={t.id: list(t.pos) for t in world.things()},
+                entities={e.id: list(e.pos) for e in world.entities.values()},
                 drives={n.id: n.drives for n in npcs})
 
     engine = Engine(world, npcs, brains, journal)   # dispatch_think=None -> think inline
@@ -124,10 +111,10 @@ def run_episode(ep_id: str, path: str, provider, cfg: dict, rng: random.Random,
         row = {"episode": ep_id, "file": os.path.basename(path), "npc": nid,
                "drives": drives[nid], "profile": profile_key(drives[nid]),
                "return": round(returns[nid], 3), "survival_s": round(survival_s, 1),
-               "novelty": novelty[nid], "cause": cause, "water_dist": water_dist[nid]}
+               "novelty": novelty[nid], "cause": cause}
         journal.log(nid, "episode_result", **{k: v for k, v in row.items() if k not in ("episode", "file")})
         rows.append(row)
-    journal.log("system", "shutdown")
+    journal.log("system", "shutdown", sim_t=round(engine.sim_t, 1))
     journal.close()
     return rows
 
@@ -161,7 +148,6 @@ def main():
     ap.add_argument("--provider", choices=["ollama", "transformers", "anthropic"], default="ollama")
     ap.add_argument("--model", default=None, help="override model (ollama name, HF path, or claude-* id)")
     ap.add_argument("--adapter", default=None, help="LoRA adapter dir (transformers provider)")
-    ap.add_argument("--temperature", type=float, default=None, help="rollout sampling temperature (default: config.json)")
     ap.add_argument("--tag", default=None, help="filename tag; default = timestamp")
     ap.add_argument("--summarize", metavar="SCORES", help="re-print aggregates from a scores.jsonl and exit")
     args = ap.parse_args()

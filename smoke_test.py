@@ -15,7 +15,7 @@ from sim.perception import PerceptionTracker, visible_tiles
 from sim.spatial import SpatialMemory
 from sim.engine import Engine, death_cause
 from sim.needs import tick_needs, HUNGER_DRAIN_PER_S, THIRST_DRAIN_PER_S, HEALTH_REGEN_PER_S
-from sim.reward import curiosity_reward, note_novelty, reward, survival_reward, validate_drives
+from sim.reward import curiosity_reward, note_novelty, reward, survival_reward
 from sim.provider import OllamaProvider, _text_value_so_far
 from sim.world import Connector, World, has_los, level_of
 
@@ -209,8 +209,8 @@ def test_spatial_memory():
     f.observe((0, 0, 1), "floor")
     assert f.memorability((0, 0, 1)) == SIGHT_BOOST
     for _ in range(20):
-        f.observe((0, 0, 1), "floor")
-    assert f.memorability((0, 0, 1)) == MEMORABILITY_CAP, "reinforcement caps out"
+        f.observe((0, 0), "floor")
+    assert f.memorability((0, 0)) == MEMORABILITY_CAP, "reinforcement caps out"
 
     # decay + threshold: an un-refreshed tile fades and is forgotten; a nearby goal
     # floors memorability by proximity so goal-relevant geometry survives
@@ -366,38 +366,30 @@ def test_reward():
     world = World(4, 4)
 
     # topped-off survivalist: reward ~ 1 * survival signal
-    e = Entity("a", "a", "npc", 1, 1, 1.0)
+    e = Entity("a", "a", "npc", 1, 1)
     e.drives = {"survival": 1.0, "curiosity": 0.0}
     assert survival_reward(e, world) == 1.0 and reward(e, world) == 1.0
 
     # only as safe as the worst meter; starving ~ 0; dead = 0
-    e.stats["thirst"] = 30.0
+    e.thirst = 30.0
     assert survival_reward(e, world) == 0.3
-    e.stats["hunger"] = 0.0
+    e.hunger = 0.0
     assert survival_reward(e, world) == 0.0, "an empty meter zeroes the signal"
-    e.stats["hunger"], e.stats["health"] = 100.0, 0.0
+    e.hunger, e.hp = 100.0, 0.0
     assert survival_reward(e, world) == 0.0, "death ends reward accrual"
 
     # curiosity pays out when a type newly becomes familiar, once
-    c = Entity("c", "c", "npc", 1, 1, 1.0)
-    c.drives = {"survival": 0.5, "curiosity": 0.5}
+    c = Entity("c", "c", "npc", 1, 1)
+    c.drives = {"survival": 0.0, "curiosity": 0.5}
     brain = Brain("c", object())
     seen = {}
-    assert note_novelty(c, brain, seen) == 0 and reward(c, world) == 0.5   # survival share only
+    assert note_novelty(c, brain, seen) == 0 and reward(c, world) == 0.0
     brain.record_events([{"kind": "did_interact", "target": "bush_1", "target_type": "berry_bush",
                           "target_pos": [2, 1], "outcome": "ok", "effect": "picked a berry"}],
                         now_t=1.0, location=[1, 1])
     assert note_novelty(c, brain, seen) == 1 and curiosity_reward(c, world) == 1.0
-    assert reward(c, world) == 1.0, "novelty weighted by the curiosity share"
+    assert reward(c, world) == 0.5, "novelty weighted by the curiosity drive"
     assert note_novelty(c, brain, seen) == 0, "a discovery pays only once"
-
-    # drive weights are shares of one whole: sum != 1 is rejected, never renormalized
-    validate_drives({"survival": 0.75, "curiosity": 0.25})
-    try:
-        validate_drives({"survival": 1.0, "curiosity": 0.5})
-        assert False, "sum 1.5 must be rejected"
-    except ValueError:
-        pass
 
     # a survival-only profile's reward ignores novelty entirely
     c.drives = {"survival": 1.0, "curiosity": 0.0}
@@ -408,10 +400,12 @@ def test_reward():
 def test_engine_headless():
     from sim.world import World
     world = World(8, 8)
-    npc = Entity("npc_1", "npc_1", "npc", 1, 1, 1.0)
-    npc.stats["thirst"] = 40.0
-    world.entities[npc.id] = npc
-    world.put(2, 1, 1, floor="grass", connector=make("well", "water_1"))
+    npc = Entity("npc_1", "npc_1", "npc", 1, 1)
+    npc.thirst = 40.0
+    water = Entity("water_1", "water_1", "water", 2, 1)
+    water.resource = {"kind": "restore", "stat": "thirst", "amount": 100}
+    for e in (npc, water):
+        world.entities[e.id] = e
 
     # synchronous think: perceiving the (novel) water triggers a decide inline,
     # and the returned plan executes through the same advance_goals as the game
@@ -424,15 +418,15 @@ def test_engine_headless():
     engine = Engine(world, [npc], {"npc_1": Brain("npc_1", prov)}, j)
     engine.step(0.3)
     assert prov.calls, "novel perception must trigger a synchronous think"
-    assert npc.stats["thirst"] > 95.0, f"the planned drink executed (thirst={npc.stats['thirst']})"
+    assert npc.thirst > 95.0, f"the planned drink executed (thirst={npc.thirst})"
     fam = engine.brains["npc_1"]._familiar_types()
-    assert "well" in fam, "the outcome memory makes the well familiar"
+    assert "water" in fam, "the outcome memory makes water familiar"
     # and the reward pipeline sees the discovery
     assert note_novelty(npc, engine.brains["npc_1"], {}) == 1
 
     # death mid-run: the engine reaps, the survivor keeps stepping
-    doomed = Entity("npc_2", "npc_2", "npc", 5, 5, 1.0)
-    doomed.stats["health"], doomed.stats["hunger"] = 0.5, 0.0
+    doomed = Entity("npc_2", "npc_2", "npc", 5, 5)
+    doomed.hp, doomed.hunger = 0.5, 0.0
     world.entities[doomed.id] = doomed
     engine.npcs.append(doomed)
     engine.npcs_by_id[doomed.id] = doomed
@@ -448,23 +442,10 @@ def test_engine_headless():
     ncalls = len(prov.calls)
     engine.step(2.5)                     # sim_t 3.8 > next_think_at
     assert len(prov.calls) > ncalls, "the idle think cadence must fire"
-
-    # wait semantics: a wait action holds indefinitely (no clock) and only the
-    # next decision's goals end it
-    wait_goal = Goal(actions=[{"action": "wait"}], importance=5.0)
-    npc.goals.add(wait_goal)
-    for _ in range(4):
-        engine.step(1.0)
-    assert npc.goals.current() is wait_goal and wait_goal.status == "active", \
-        "waiting never completes on its own"
-    engine.post_goals("npc_1", [Goal(actions=[{"action": "say", "params": {"text": "up"}}],
-                                     importance=1.0)])
-    assert wait_goal.status == "done", "a new decision ends the wait"
-    assert npc.goals.current().actions[0]["action"] == "say", "even a lower-importance one"
     j.close()
     rec = [json.loads(l) for l in open(path, encoding="utf-8")]
     types = {r["type"] for r in rec}
-    assert {"goals_added", "effects", "death"} <= types, types
+    assert {"goals_added", "resource_use", "death"} <= types, types
 
 
 def test_episode_runner():
@@ -475,9 +456,8 @@ def test_episode_runner():
     rng = _random.Random(7)
     for _ in range(20):
         d = sample_drives(rng)
-        assert d["survival"] in (0.0, 0.25, 0.5, 0.75, 1.0), d
-        assert abs(sum(d.values()) - 1.0) < 1e-9, f"drives must sum to 1: {d}"
-    assert profile_key({"survival": 0.75, "curiosity": 0.25}) == "curiosity=0.25,survival=0.75"
+        assert d["survival"] in (0.5, 1.0) and d["curiosity"] in (0.0, 0.5, 1.0), d
+    assert profile_key({"survival": 1.0, "curiosity": 0.5}) == "curiosity=0.5,survival=1"
 
     # a micro-episode end to end: engine + reward accrual + score rows.
     # the exhausted FakeProvider makes every think fail closed -> empty agendas,
@@ -503,37 +483,6 @@ def test_episode_runner():
     keep = load_keep_set(scores, top=0.5)
     assert keep == {("ep_0.jsonl", "npc_0"), ("ep_2.jsonl", "npc_2")}, \
         "low-return explorers must not lose to high-return survivalists' raw numbers"
-    # max_keep caps each bucket independently (bounds an ever-growing elite pool)
-    keep = load_keep_set(scores, top=1.0, max_keep=1)
-    assert keep == {("ep_0.jsonl", "npc_0"), ("ep_2.jsonl", "npc_2")}, \
-        "cap keeps each bucket's best, never evicting one profile for another"
-
-
-def test_think_debounce():
-    # near-simultaneous novel memories share ONE think: the novelty flag becomes a
-    # short due-window instead of firing a call per memory
-    from sim.world import World
-    world = World(6, 6)
-    npc = Entity("npc_1", "npc_1", "npc", 1, 1, 1.0)
-    world.entities[npc.id] = npc
-    goalset = {"goals": [{"actions": [{"action": "wait"}], "importance": 1}]}
-    prov = FakeProvider([goalset] * 5)
-    j = Journal(os.path.join(tempfile.mkdtemp(), "debounce.jsonl"), "debounce")
-    eng = Engine(world, [npc], {"npc_1": Brain("npc_1", prov)}, j)
-    eng.step(0.1)                        # spawn think fires via cadence
-    base = len(prov.calls)
-    brain = eng.brains["npc_1"]
-    brain.record_events([{"kind": "heard_say", "speaker": "a", "speaker_type": "npc",
-                          "speaker_pos": [2, 2], "text": "one"}], eng.sim_t, [1, 1])
-    eng.step(0.1)                        # inside the window: held, not dispatched
-    brain.record_events([{"kind": "heard_say", "speaker": "b", "speaker_type": "npc",
-                          "speaker_pos": [3, 3], "text": "two"}], eng.sim_t, [1, 1])
-    eng.step(0.1)                        # second novelty joins the same window
-    assert len(prov.calls) == base, "the window holds near-simultaneous novelties"
-    eng.step(0.3)                        # window closed -> exactly one think for both
-    assert len(prov.calls) == base + 1, "one call covers the batch"
-    assert eng.think_due_at["npc_1"] is None
-    j.close()
 
 
 def test_felt_memories():
@@ -577,7 +526,7 @@ def test_felt_memories():
     # produce merged felt runs, not a flood of records
     from sim.world import World
     world = World(6, 6)
-    npc = Entity("npc_1", "npc_1", "npc", 1, 1, 1.0)
+    npc = Entity("npc_1", "npc_1", "npc", 1, 1)
     world.entities[npc.id] = npc
     j = Journal(os.path.join(tempfile.mkdtemp(), "felt.jsonl"), "felt")
     eng = Engine(world, [npc], {"npc_1": Brain("npc_1", FakeProvider([]))}, j)
@@ -1060,7 +1009,6 @@ def main() -> None:
     test_reward()
     test_engine_headless()
     test_episode_runner()
-    test_think_debounce()
     test_felt_memories()
     test_curiosity()
     test_brain_validation()

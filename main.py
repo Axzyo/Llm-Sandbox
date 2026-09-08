@@ -98,7 +98,7 @@ def main() -> None:
     ]
     for e in [player, *npcs]:
         world.entities[e.id] = e
-        e.properties["interact_range"] = int(cfg["interact_range"])
+        e.interact_range = int(cfg["interact_range"])
     # scatter terrain resources (fresh random layout each load)
     place_resources(world, random.Random())
 

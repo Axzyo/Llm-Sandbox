@@ -50,11 +50,9 @@ def iter_events(paths):
                     continue
 
 
-def load_keep_set(scores_path: str, top: float, max_keep: int | None = None) -> set:
+def load_keep_set(scores_path: str, top: float) -> set:
     """The (run file, npc) pairs whose trajectories train: per drive-profile
-    bucket, the NPCs in the top `top` quantile by return. `max_keep` caps each
-    bucket (per bucket, never globally, so no profile's winners evict
-    another's) — it bounds training-set size as a cross-round elite pool grows."""
+    bucket, the NPCs in the top `top` quantile by return."""
     buckets = collections.defaultdict(list)
     with open(scores_path, encoding="utf-8") as f:
         for line in f:
@@ -65,8 +63,6 @@ def load_keep_set(scores_path: str, top: float, max_keep: int | None = None) -> 
     for prof, rows in sorted(buckets.items()):
         rows.sort(key=lambda r: r["return"], reverse=True)
         n_keep = max(1, math.ceil(len(rows) * top))
-        if max_keep is not None:
-            n_keep = min(n_keep, max_keep)
         kept = rows[:n_keep]
         keep.update((r["file"], r["npc"]) for r in kept)
         print(f"profile {prof}: kept {n_keep}/{len(rows)} "
@@ -132,7 +128,6 @@ def main():
     ap.add_argument("--report", action="store_true", help="print stats only, write nothing")
     ap.add_argument("--scores", help="scores.jsonl from run_episodes: keep only high-return trajectories")
     ap.add_argument("--top", type=float, default=0.5, help="per-profile quantile of NPCs to keep (with --scores)")
-    ap.add_argument("--max-keep", type=int, default=None, help="cap NPCs kept per profile bucket (with --scores)")
     args = ap.parse_args()
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -146,7 +141,7 @@ def main():
     keep = None
     if args.scores:
         scores = args.scores if os.path.isabs(args.scores) else os.path.join(root, args.scores)
-        keep = load_keep_set(scores, args.top, args.max_keep)
+        keep = load_keep_set(scores, args.top)
 
     seen = set()
     rows = []

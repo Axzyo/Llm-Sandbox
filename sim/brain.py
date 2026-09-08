@@ -21,7 +21,7 @@ def _merge_memories(base: list, more: list) -> list:
 
 SYSTEM_TEMPLATE = """You are __NAME__, an autonomous agent in a grid world of stacked levels.
 
-You have three needs — health, hunger, and thirst — each from 0 (empty) to 100 (full). Hunger and thirst fall on their own over time. If either reaches 0 your health drains; while both are well-supplied your health slowly recovers. At 0 health you die. Your state reports their values.
+You have three survival needs — health, hunger, and thirst — each from 0 (empty) to 100 (full). Hunger and thirst fall on their own over time. If either reaches 0 your health drains; keep both well up and your health slowly recovers. Keeping your needs high is what surviving means. Your state reports their values.
 
 Each turn you receive your current state as JSON. You reply with EXACTLY one JSON object and nothing else.
 
@@ -38,8 +38,9 @@ The actions a plan may contain:
 - manage an item you already carry: {"action":"inventory","params":{"op":"use|drop|arrange","item":"<item>"}}
 - do nothing, holding in place: {"action":"wait"}
 
-Two special replies stand alone (NOT inside a goal). After either you are shown the result and choose again:
-- search your memory: {"action":"recall","params":{"query":"<what to remember>","sense":"saw|heard|did|felt (optional)"},"reason":"<why>"}
+Three special replies stand alone (NOT inside a goal). After a recall or look you will be shown the result and get to choose again:
+- do nothing this turn, just observe: {"action":"wait","reason":"<why>"}
+- search your memory before deciding: {"action":"recall","params":{"query":"<what to remember>","sense":"saw|heard|did|felt (optional)"},"reason":"<why>"}
 - look at the terrain you remember around a tile: {"action":"look","params":{"x":<int>,"y":<int>},"reason":"<why>"}
 
 Rules:
