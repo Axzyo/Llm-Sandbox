@@ -20,8 +20,10 @@ merge into `main`.
    functions and kind-special-casing.
 
 3. **Delete dead code; don't let it linger.**
-   Remove dormant/unused code rather than keeping it "just in case." Rebuild fresh
-   when a concrete need actually arises.
+   Remove dormant/unused code rather than keeping it "just in case." If it is not
+   being used right now, remove it — adding it fresh when a concrete need arises
+   beats working around old code. This applies to config keys, compat bridges,
+   and inert feature paths, not just functions.
 
 4. **No premature complexity.**
    Choose the simplest structure that fits the current scale. Don't add compact

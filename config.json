@@ -6,6 +6,5 @@
   "keep_alive": "30m",
   "memory_k": 5,
   "memory_halflife_s": 300,
-  "max_dialogue_turns": 12,
   "interact_range": 4
 }

@@ -127,12 +127,12 @@ class GoalList:
 
 def goal_from_intent(intent, importance: float = DEFAULT_IMPORTANCE) -> Goal | None:
     """Wrap a single validated intent dict as a one-action Goal (bridge for
-    injected/scripted actions). Returns None for recall/wait (thinking-layer
+    injected/scripted actions). Returns None for recall/look (thinking-layer
     choices, not world goals) or malformed input."""
     if not isinstance(intent, dict):
         return None
     action = intent.get("action")
-    if action is None or action in ("recall", "wait"):
+    if action is None or action in ("recall", "look"):
         return None
     return Goal(
         actions=[{"action": action, "params": dict(intent.get("params") or {})}],

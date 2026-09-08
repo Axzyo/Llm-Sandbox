@@ -63,6 +63,6 @@ class Consolidator:
         if direction is not None:
             prev["direction"] = direction
         if observer_loc:
-            prev["observer_loc"] = [int(observer_loc[0]), int(observer_loc[1])]
+            prev["observer_loc"] = list(observer_loc)
         prev["t_end"] = t
         prev["count"] += 1

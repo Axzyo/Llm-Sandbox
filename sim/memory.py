@@ -87,7 +87,7 @@ class MemoryStore:
             "t_end": t,                  # last occurrence; == t until it consolidates
             "count": 1,                  # raw events folded into this record
             "sense": sense,
-            "observer_loc": [int(observer_loc[0]), int(observer_loc[1])] if observer_loc else None,
+            "observer_loc": list(observer_loc) if observer_loc else None,
             "direction": direction,
             "subject": subject,          # {kind, ref, type, pos, info}
             "last_accessed": t,
